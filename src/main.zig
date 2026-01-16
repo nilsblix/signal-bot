@@ -1,7 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Child = std.process.Child;
-
 const signal = @import("signal.zig");
 
 pub fn main() !void {
@@ -14,32 +13,40 @@ pub fn main() !void {
     }
     const alloc = gpa.allocator();
 
-    var args = std.process.args();
-    _ = args.next() orelse return error.Unexpected;
+    while (true) {
+        const received = try signal.receive(alloc, &.{ .{ .prefixed_text_message = "!" }, .reaction });
+        defer received.parsed.deinit();
 
-    const action = args.next() orelse return error.Unexpected;
-    if (std.mem.eql(u8, action, "send-message")) {
-        const message = args.next() orelse return error.Unexpected;
-        const user = args.next() orelse return error.Unexpected;
-        std.debug.assert(args.next() == null);
+        const msg = received.parsed.value;
+        const source = msg.envelope.source;
+        const name = msg.sourceName() orelse continue;
 
-        std.debug.print("message = {s}\n", .{message});
-        std.debug.print("user = {s}\n", .{user});
+        switch (received.type) {
+            .prefixed_text_message => |_| {
+                const text = msg.textMessage() orelse continue;
 
-        const status = try signal.sendMessage(alloc, message, .{ .user = user });
-        std.debug.print("=== Signal status: {s}\n", .{status});
-    } else if (std.mem.eql(u8, action, "receive")) {
-        std.debug.assert(args.next() == null);
-        while (true) {
-            const json = try signal.receive(alloc);
-            defer alloc.free(json);
+                const chat_msg = try std.fmt.allocPrint(alloc, "{s} [{s}]> {s}", .{name, source, text});
+                defer alloc.free(chat_msg);
+                std.debug.print("{s}\n", .{chat_msg});
 
-            const parsed = try signal.Message.parse(alloc, json);
-            defer parsed.deinit();
+                if (std.mem.eql(u8, text[1..], "echo")) {
+                    try signal.sendMessage(alloc, "hello, world!", .{ .phone = source });
+                }
 
-            if (parsed.value.textMessage()) |text| {
-                std.debug.print("{s}>\t{s}\n", .{parsed.value.envelope.sourceName.?, text});
-            }
+                if (std.mem.eql(u8, text[1..], "Hej är jag snygg?")) {
+                    try signal.sendMessage(alloc, "Hell no motherfucker...", .{ .phone = source });
+                }
+            },
+            .reaction => {
+                const reaction = msg.reaction().?;
+                if (reaction.isRemove) continue;
+
+                const target = reaction.targetAuthor;
+                const chat_msg = try std.fmt.allocPrint(alloc, "{s} [{s}] reacted with {s} to {s}", .{name, source, reaction.emoji, target});
+                defer alloc.free(chat_msg);
+                std.debug.print("{s}\n", .{chat_msg});
+            },
+            else => {},
         }
     }
 }
