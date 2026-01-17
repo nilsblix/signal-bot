@@ -48,7 +48,7 @@ const Token = struct {
 
         fn get(b: u8) Kind {
             return switch (b) {
-                'A'...'Z', 'a'...'z' => .symbol,
+                'A'...'Z', 'a'...'z', '_', '-' => .symbol,
                 '0'...'9' => .num,
                 '"', '\'' => .string,
                 '(' => .oparen,
@@ -211,7 +211,152 @@ pub const Lexer = struct {
             };
         }
     }
+
+    fn peekNextToken(self: *Lexer) error{Unexpected}!?Token {
+        const cur = self.cur;
+        const loc = self.loc;
+        defer {
+            self.cur = cur;
+            self.loc = loc;
+        }
+        return try self.nextToken();
+    }
+
+    /// Get the next expression.
+    ///
+    /// `alloc` should be an arena.allocator(), as not to leak memory.
+    fn nextExpression(self: *Lexer, alloc: Allocator) error{Unexpected, OutOfMemory, NoToken, InvalidToken}!Expression {
+        const tok = try self.nextToken() orelse return error.NoToken;
+        switch (tok.kind) {
+            .symbol => {
+                const next = try self.nextToken() orelse return error.Unexpected;
+                switch (next.kind) {
+                    .oparen => {
+                        // `lexer` currently sits at the first argument or
+                        // cparen. We therefore find the next non-comma token
+                        // until we encounter a cparen, which becomes the
+                        // arguments. For each argument we create a lexer, and
+                        // gets the argument expression.
+                        var args = std.ArrayList(Expression).empty;
+                        while (true) {
+                            const prev = self.cur;
+                            const prev_loc = self.loc;
+                            // We return error.Unexpected as we have to have a
+                            // cparen to call a function. null from nextToken
+                            // means EOF, therefore no cparen, which is
+                            // unexpected syntax.
+                            const arg_tok = try self.nextToken() orelse return error.Unexpected;
+                            switch (arg_tok.kind) {
+                                .comma => continue,
+                                .cparen => break,
+                                .invalid, .oparen => return error.Unexpected,
+                                .symbol, .num, .string => {
+                                    var arg_lexer = Lexer.init(self.loc.filepath, self.content);
+                                    arg_lexer.cur = prev;
+                                    arg_lexer.loc = prev_loc;
+
+                                    const arg = try arg_lexer.nextExpression(alloc);
+                                    try args.append(alloc, arg);
+
+                                    self.cur = arg_lexer.cur;
+                                    self.loc = arg_lexer.loc;
+                                },
+                            }
+                        }
+                        return Expression{
+                            .fn_call = .{
+                                .args = args.toOwnedSlice(alloc) catch return error.OutOfMemory,
+                                .name = tok.text,
+                            },
+                        };
+                    },
+                    .cparen, .comma => {
+                        return Expression{ .@"var" = tok.text };
+                    },
+                    .invalid, .symbol, .num, .string => return error.Unexpected,
+                }
+            },
+            .num => {
+                const int = std.fmt.parseInt(u64, tok.text, 10) catch |e| {
+                    std.log.warn("Token of type num could not be parsed as u64: {}\n", .{e});
+                    return error.InvalidToken;
+                };
+                return Expression{ .int = int };
+            },
+            .string => {
+                return Expression{ .string = tok.text };
+            },
+            .invalid, .oparen, .cparen, .comma => {
+                return error.Unexpected;
+            },
+        }
+    }
 };
+
+test "Lexer.nextExpression" {
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) {
+            std.log.err("memory leak", .{});
+        }
+    }
+    const alloc = gpa.allocator();
+
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+
+    const arena_alloc = arena.allocator();
+    const exp = std.testing.expect;
+
+    const content =
+    \\ echo(concat("Hello, ", "my_name"))
+    ;
+
+    var lexer = Lexer.init(null, content);
+    const expr = lexer.nextExpression(arena_alloc) catch |e| {
+        switch (e) {
+            error.Unexpected => {
+                const dumped = try lexer.loc.dump(alloc);
+                std.log.err("Unexpected token at {s}\n", .{dumped});
+            },
+            error.NoToken, error.OutOfMemory, error.InvalidToken => {
+                std.log.err("Error while getting next expression: {}\n", .{e});
+            },
+        }
+        return error.TextUnexpectedResult;
+    };
+
+    // TODO: FIXME: Run this test, and check all types of expressions and tokens.
+    switch (expr) {
+        .fn_call => |echo| {
+            try exp(std.mem.eql(u8, echo.name, "echo"));
+            try exp(echo.args.len == 1);
+            switch (echo.args[0]) {
+                .fn_call => |concat| {
+                    try exp(std.mem.eql(u8, concat.name, "concat"));
+                    try exp(concat.args.len == 2);
+
+                    switch (concat.args[0]) {
+                        .string => |s| {
+                            try exp(std.mem.eql(u8, s, "Hello, "));
+                        },
+                        else => return error.TextUnexpectedResult,
+                    }
+
+                    switch (concat.args[1]) {
+                        .string => |s| {
+                            try exp(std.mem.eql(u8, s, "my_name"));
+                        },
+                        else => return error.TextUnexpectedResult,
+                    }
+                },
+                else => return error.TextUnexpectedResult,
+            }
+        },
+        else => return error.TextUnexpectedResult,
+    }
+}
 
 test "Lexer.nextToken single-token" {
     const exp = std.testing.expect;
@@ -236,6 +381,17 @@ test "Lexer.nextToken single-token" {
         };
         try exp(res.kind == .symbol);
         try exp(std.mem.eql(u8, res.text, "variable"));
+        try exp(res.loc.col == 0 and res.loc.row == 0);
+    }
+    {
+        const content = "longer_variable";
+        var lexer = Lexer.init(null, content);
+        const res = try lexer.nextToken() orelse {
+            try exp(false);
+            return;
+        };
+        try exp(res.kind == .symbol);
+        try exp(std.mem.eql(u8, res.text, "longer_variable"));
         try exp(res.loc.col == 0 and res.loc.row == 0);
     }
     {
@@ -374,10 +530,24 @@ pub const Expression = union(enum) {
             .void, .int, .@"var", .fn_call => error.InvalidCast,
         };
     }
+
+    pub fn asVar(self: Expression) error{InvalidCast}![]const u8 {
+        return switch (self) {
+            .@"var" => |v| v,
+            .void, .int, .string, .fn_call => error.InvalidCast,
+        };
+    }
+
+    pub fn asFnCall(self: Expression) error{InvalidCast}!FnCall {
+        return switch (self) {
+            .fn_call => |f| f,
+            .void, .int, .string, .@"var" => error.InvalidCast,
+        };
+    }
 };
 
 pub const Context = struct {
-    arena: std.heap.ArenaAllocator,
+    alloc: Allocator,
     target: signal.Target,
 
     /// Macro-style replacement. When using a variable in a script, the program
@@ -387,12 +557,12 @@ pub const Context = struct {
     /// expression result of the function.
     fns: std.StringHashMap(FnCall.Impl),
 
-    pub fn init(arena: std.heap.ArenaAllocator, target: signal.Target) Context {
-        const vars = std.StringHashMap(Expression).init(arena.child_allocator);
-        const fns = std.StringHashMap(FnCall.Impl).init(arena.child_allocator);
+    pub fn init(alloc: Allocator, target: signal.Target) Context {
+        const vars = std.StringHashMap(Expression).init(alloc);
+        const fns = std.StringHashMap(FnCall.Impl).init(alloc);
 
         return .{
-            .arena = arena,
+            .alloc = alloc,
             .target = target,
             .vars = vars,
             .fns = fns,
