@@ -85,37 +85,29 @@ const Token = struct {
 };
 
 pub const Lexer = struct {
-    filepath: ?[]const u8 = null,
     content: []const u8,
     cur: usize,
-    col: usize,
-    row: usize,
+    loc: Token.Loc,
 
     pub fn init(filepath: ?[]const u8, content: []const u8) Lexer {
         return .{
-            .filepath = filepath,
             .content = content,
             .cur = 0,
-            .col = 0,
-            .row = 0,
-        };
-    }
-
-    pub fn loc(self: Lexer) Token.Loc {
-        return .{
-            .filepath = self.filepath,
-            .row = self.row,
-            .col = self.col,
+            .loc = .{
+                .filepath = filepath,
+                .col = 0,
+                .row = 0,
+            },
         };
     }
 
     fn advance(self: *Lexer) error{EndOfFile}!void {
         const b = self.content[self.cur];
         if (b == '\n') {
-            self.col = 0;
-            self.row += 1;
+            self.loc.col = 0;
+            self.loc.row += 1;
         } else {
-            self.col += 1;
+            self.loc.col += 1;
         }
 
         self.cur += 1;
@@ -124,13 +116,13 @@ pub const Lexer = struct {
         }
     }
 
-    fn chopLargerToken(self: Lexer, start: usize, kind: Token.Kind, l: Token.Loc) ?Token {
+    fn chopLargerToken(self: Lexer, start: usize, kind: Token.Kind, loc: Token.Loc) ?Token {
         switch (kind) {
             .symbol, .num => {
                 return Token{
                     .kind = kind,
                     .text = self.content[start..],
-                    .loc = l,
+                    .loc = loc,
                 };
             },
             .string => {
@@ -142,14 +134,14 @@ pub const Lexer = struct {
 
     pub fn nextToken(self: *Lexer) error{Unexpected}!?Token {
         var start = self.cur;
-        var start_loc = self.loc();
+        var start_loc = self.loc;
         var token_kind = Token.Kind.invalid;
 
         while (true) {
             const b = self.content[self.cur];
             const byte_kind = Token.Kind.get(b);
 
-            start_loc = self.loc();
+            start_loc = self.loc;
             switch (byte_kind) {
                 .symbol, .num, .string => {
                     start = self.cur;
