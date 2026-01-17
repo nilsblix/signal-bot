@@ -170,6 +170,12 @@ pub fn sendMessage(alloc: Allocator, message: []const u8, target: Target) !void 
     };
 }
 
+pub fn sendMessageSafely(alloc: Allocator, message: []const u8, target: Target) void {
+    sendMessage(alloc, message, target) catch |e| {
+        std.log.err("Something went wrong in `signal.sendMessage`: {}\n", .{e});
+    };
+}
+
 pub const Message = struct {
     envelope: Envelope,
     account: []const u8,
