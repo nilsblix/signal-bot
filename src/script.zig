@@ -66,10 +66,10 @@ const Token = struct {
 
         pub fn dump(self: Loc, alloc: Allocator) Allocator.Error![]u8 {
             if (self.filepath) |f| {
-                return try std.fmt.allocPrint(alloc, "{s}:{d}:{d}", .{f, self.row, self.col});
+                return try std.fmt.allocPrint(alloc, "{s}:{d}:{d}", .{ f, self.row, self.col });
             }
 
-            return try std.fmt.allocPrint(alloc, "{d}:{d}", .{self.row, self.col});
+            return try std.fmt.allocPrint(alloc, "{d}:{d}", .{ self.row, self.col });
         }
     };
 
@@ -80,7 +80,7 @@ const Token = struct {
     pub fn dump(self: Token, alloc: Allocator) Allocator.Error![]u8 {
         const loc = try self.loc.dump(alloc);
         defer alloc.free(loc);
-        return try std.fmt.allocPrint(alloc, "kind: {any}, text: `{s}`, loc: {s}", .{self.kind, self.text, loc});
+        return try std.fmt.allocPrint(alloc, "kind: {any}, text: `{s}`, loc: {s}", .{ self.kind, self.text, loc });
     }
 };
 
@@ -152,10 +152,12 @@ pub const Lexer = struct {
                 },
                 // These are single-character tokens.
                 .oparen, .cparen, .comma => {
-                    defer { self.advance() catch {}; }
+                    defer {
+                        self.advance() catch {};
+                    }
                     return Token{
                         .kind = byte_kind,
-                        .text = self.content[self.cur..self.cur + 1],
+                        .text = self.content[self.cur .. self.cur + 1],
                         .loc = start_loc,
                     };
                 },
@@ -192,7 +194,7 @@ pub const Lexer = struct {
                         self.advance() catch {};
                         return Token{
                             .kind = token_kind,
-                            .text = self.content[start + 1..self.cur - 1],
+                            .text = self.content[start + 1 .. self.cur - 1],
                             .loc = start_loc,
                         };
                     }
@@ -272,61 +274,61 @@ test "Lexer.nextToken single-token" {
 }
 
 test "Lexer.nextToken same content" {
-        const content =
+    const content =
         \\Hello world "This
         \\ is actually one string..." 34
         \\35     define(let, args(1, expr))
-        ;
+    ;
 
-        var lexer = Lexer.init(null, content);
+    var lexer = Lexer.init(null, content);
 
-        var tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "Hello"));
+    var tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "Hello"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "world"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "world"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "This\n is actually one string..."));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "This\n is actually one string..."));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "34"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "34"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "35"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "35"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "define"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "define"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "("));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "("));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "let"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "let"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, ","));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, ","));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "args"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "args"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "("));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "("));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "1"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "1"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, ","));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, ","));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, "expr"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, "expr"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
 
-        tok = try lexer.nextToken() orelse return error.NoToken;
-        try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
+    tok = try lexer.nextToken() orelse return error.NoToken;
+    try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
 }
 
 pub const Error = error{
@@ -353,7 +355,7 @@ pub const FnCall = struct {
 };
 
 pub const Expression = union(enum) {
-    @"void",
+    void,
     int: u64,
     string: []const u8,
     @"var": []const u8,
@@ -362,14 +364,14 @@ pub const Expression = union(enum) {
     pub fn asInt(self: Expression) error{InvalidCast}!u64 {
         return switch (self) {
             .int => |d| d,
-            .@"void", .string, .@"var", .fn_call => error.InvalidCast,
+            .void, .string, .@"var", .fn_call => error.InvalidCast,
         };
     }
 
     pub fn asString(self: Expression) error{InvalidCast}![]const u8 {
         return switch (self) {
             .string => |s| s,
-            .@"void", .int, .@"var", .fn_call => error.InvalidCast,
+            .void, .int, .@"var", .fn_call => error.InvalidCast,
         };
     }
 };
@@ -404,7 +406,7 @@ pub const Context = struct {
 
     pub fn eval(self: *Context, expr: Expression) Error!Expression {
         switch (expr) {
-            .@"void", .int, .string => return expr,
+            .void, .int, .string => return expr,
             .@"var" => |v| {
                 const replacement = self.vars.get(v) orelse return error.UnknownVariable;
                 return try self.eval(replacement);

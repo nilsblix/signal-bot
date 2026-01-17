@@ -157,7 +157,7 @@ pub fn sendMessage(alloc: Allocator, message: []const u8, target: Target) !void 
 
     const options = target.sendOptions();
     const argv = [_][]const u8{ "signal-cli", "send", "-m", message } ++ options.@"0";
-    c.argv = argv[0..4 + options.@"1"];
+    c.argv = argv[0 .. 4 + options.@"1"];
 
     try c.spawn();
     const out = try getStatus(&c);
