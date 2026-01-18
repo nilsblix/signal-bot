@@ -371,7 +371,7 @@ pub const Error = error{
     /// such as `if(cond, then, else)` which require that `cond` evaluates to
     /// either "true" or "false".
     InvalidArgumentValue,
-    VariableShadow,
+    Shadowing,
 };
 
 pub const FnCall = struct {
