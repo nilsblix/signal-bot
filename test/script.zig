@@ -1,7 +1,8 @@
 const std = @import("std");
 const app = @import("app");
-const Lexer = app.script.Lexer;
-const Expression = app.script.Expression;
+const script = app.script;
+const Lexer = script.Lexer;
+const Expression = script.Expression;
 
 fn expectExpressionEqual(actual: Expression, expected: Expression) error{TextUnexpectedResult}!void {
     switch (expected) {
@@ -247,6 +248,53 @@ test "number at end of arguments" {
     try expectExpression(content, expr);
 }
 
+const ExpressionResult = union(enum) {
+    parse_error: script.ParseError,
+    expr: ?Expression,
+
+    fn asParseError(self: ExpressionResult) error{InvalidCast}!script.ParseError {
+        switch (self) {
+            .parse_error => |e| return e,
+            .expr => return error.InvalidCast,
+        }
+    }
+
+    fn asExpression(self: ExpressionResult) error{InvalidCast}!?Expression {
+        switch (self) {
+            .parse_error => return error.InvalidCast,
+            .expr => |e| return e,
+        }
+    }
+};
+
+fn expression(content: []const u8) (Lexer.NextExpressionError || error{TextUnexpectedResult})!ExpressionResult {
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) {
+            std.log.err("memory leak", .{});
+        }
+    }
+    const alloc = gpa.allocator();
+
+    var arena_instance = std.heap.ArenaAllocator.init(alloc);
+    defer arena_instance.deinit();
+
+    const arena = arena_instance.allocator();
+
+    var lexer = Lexer.init(null, content);
+    const res = lexer.nextExpression(arena) catch |e| switch (e) {
+        error.ParseError => {
+            return .{
+                .parse_error = lexer.last_error orelse return error.TextUnexpectedResult,
+            };
+        },
+        else => return e,
+    };
+
+    return .{ .expr = res };
+}
+
 test "get next token" {
     const exp = std.testing.expect;
 
@@ -374,4 +422,74 @@ test "parse string as sequence of tokens" {
 
     tok = try lexer.nextToken() orelse return error.NoToken;
     try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
+}
+
+test "expression eql" {
+    var e1 = Expression{ .string = "hello world" };
+    var e2 = Expression{ .string = "bonjour tout le monde" };
+    try std.testing.expect(!e1.eql(e2));
+
+    // NOTE: Wow pesky zig...
+    // The string references static memory, which might not always be the case
+    // in our strings. They might have the same value, but be allocated in
+    // different places. I have manually checked this and it seems fine.
+    e1 = Expression{ .string = "bonjour tout le monde" };
+    e2 = Expression{ .string = "bonjour tout le monde" };
+    try std.testing.expect(e1.eql(e2));
+
+    e1 = .void;
+    e2 = Expression{ .string = "bonjour tout le monde" };
+    try std.testing.expect(!e1.eql(e2));
+
+    e1 = .void;
+    e2 = .void;
+    try std.testing.expect(e1.eql(e2));
+
+    e1 = Expression{ .int = 45 };
+    e2 = Expression{ .int = 45 };
+    try std.testing.expect(e1.eql(e2));
+
+    e1 = Expression{ .int = 35 };
+    try std.testing.expect(!e1.eql(e2));
+
+    e1 = Expression{ .@"var" = "var" };
+    e2 = Expression{ .@"var" = "variable" };
+    try std.testing.expect(!e1.eql(e2));
+
+    e1 = Expression{ .@"var" = "var" };
+    e2 = Expression{ .@"var" = "var" };
+    try std.testing.expect(e1.eql(e2));
+
+    e1 = Expression{ .fn_call = .{
+        .name = "echo",
+        .args = &.{ .{ .string = "name" }, .{ .int = 45 } },
+    } };
+    e2 = Expression{ .fn_call = .{
+        .name = "echo",
+        .args = &.{ .{ .string = "name" }, .{ .int = 45 } },
+    } };
+    try std.testing.expect(e1.eql(e2));
+
+    e1 = Expression{ .fn_call = .{
+        .name = "echo",
+        .args = &.{ .{ .string = "name" }, .{ .int = 45 } },
+    } };
+    e2 = Expression{ .fn_call = .{
+        .name = "world",
+        .args = &.{ .{ .string = "name" }, .{ .int = 45 } },
+    } };
+    try std.testing.expect(!e1.eql(e2));
+
+    e1 = Expression{ .fn_call = .{
+        .name = "world",
+        .args = &.{ .{ .string = "name" }, .{ .int = 45 } },
+    } };
+    e2 = Expression{ .fn_call = .{
+        .name = "world",
+        .args = &.{ .{ .@"var" = "name" }, .{ .int = 45 } },
+    } };
+    try std.testing.expect(!e1.eql(e2));
+
+    e1 = Expression{ .int = 1 };
+    try std.testing.expect(!e1.eql(e2));
 }

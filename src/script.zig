@@ -354,8 +354,7 @@ pub const Lexer = struct {
 };
 
 pub const Error = error{
-    /// An unknown error was encountered. Commonly `Allocator.Error.OutOfMemory`.
-    Abort,
+    OutOfMemory,
     /// Expression could not cast to the wanted type.
     InvalidCast,
     /// Tried to get an unknown variable from Context.vars.
@@ -364,10 +363,22 @@ pub const Error = error{
     UnknownFn,
     /// An incorrect number of arguments were supplied to a function call.
     InvalidArgumentsCount,
+    /// Some functions may require that certain arguments are named in a
+    /// certain way. Ex: `define(fn, args(...), ...impl...)` might require
+    /// that fn's' arguments are wrapped in a function call named `args`.
+    InvalidArgumentName,
+    /// Some functions require that certain arguments have certain values,
+    /// such as `if(cond, then, else)` which require that `cond` evaluates to
+    /// either "true" or "false".
+    InvalidArgumentValue,
+    VariableShadow,
 };
 
 pub const FnCall = struct {
-    pub const Impl = *const fn (ctx: *Context, args: []const Expression) Error!Expression;
+    pub const Impl = struct {
+        payload: ?*anyopaque = null,
+        @"fn": *const fn (payload: ?*anyopaque, ctx: *Context, args: []const Expression) Error!Expression,
+    };
 
     args: []const Expression,
     /// Gets matched to an implementation (of type Impl) during
@@ -410,10 +421,35 @@ pub const Expression = union(enum) {
             .void, .int, .string, .@"var" => error.InvalidCast,
         };
     }
+
+    pub fn eql(a: Expression, b: Expression) bool {
+        switch (a) {
+            .string => |a_str| switch (b) {
+                .string => |b_str| {
+                    return std.mem.eql(u8, a_str, b_str);
+                },
+                else => return false,
+            },
+            .@"var" => |a_var| switch (b) {
+                .@"var" => |b_var| {
+                    return std.mem.eql(u8, a_var, b_var);
+                },
+                else => return false,
+            },
+            .void, .int, .fn_call => {
+                return std.meta.eql(a, b);
+            },
+        }
+    }
 };
 
 pub const Context = struct {
+    /// Be careful with this arena. `Context` is a very long-living structure,
+    /// so only allocate on the arena if absolutely necessary, ex permanent
+    /// memory storage.
     arena: Allocator,
+    /// Use this inside functions to not leak memory in the long run.
+    scratch: Allocator,
     target: signal.Target,
 
     /// Macro-style replacement. When using a variable in a script, the program
@@ -423,12 +459,13 @@ pub const Context = struct {
     /// expression result of the function.
     fns: std.StringHashMap(FnCall.Impl),
 
-    pub fn init(arena: Allocator, target: signal.Target) Context {
+    pub fn init(arena: Allocator, alloc: Allocator, target: signal.Target) Context {
         const vars = std.StringHashMap(Expression).init(arena);
         const fns = std.StringHashMap(FnCall.Impl).init(arena);
 
         return .{
             .arena = arena,
+            .scratch = alloc,
             .target = target,
             .vars = vars,
             .fns = fns,
@@ -449,7 +486,7 @@ pub const Context = struct {
             },
             .fn_call => |f| {
                 const impl = self.fns.get(f.name) orelse return error.UnknownFn;
-                return try impl(self, f.args);
+                return try impl.@"fn"(impl.payload, self, f.args);
             },
         }
     }
