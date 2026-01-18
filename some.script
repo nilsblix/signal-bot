@@ -1,0 +1,12 @@
+let(ful, "isak")
+
+define(is_handsome, args(name, age),
+    if(and(not(eql(name, ful)), lse(age, 18)), "Yes bbygirl!", "Hell no..."))
+
+echo("isak => ", is_handsome("isak", 19))
+echo("nils => ", is_handsome("nils", 19))
+
+echo("isak => ", is_handsome("isak", 17))
+echo("nils => ", is_handsome("nils", 11))
+
+echo(repeat("Nils ", 100))

@@ -376,6 +376,9 @@ pub const Error = error{
 
 pub const FnCall = struct {
     pub const Impl = struct {
+        /// Used to catch some data in a closure-like fashion. Sometimes, ex:
+        /// define in builtin_fns.zig, it is necessary to wrap some data to get
+        /// certain vars or fns.
         payload: ?*anyopaque = null,
         @"fn": *const fn (payload: ?*anyopaque, ctx: *Context, args: []const Expression) Error!Expression,
     };
@@ -448,7 +451,9 @@ pub const Context = struct {
     /// so only allocate on the arena if absolutely necessary, ex permanent
     /// memory storage.
     arena: Allocator,
-    /// Use this inside functions to not leak memory in the long run.
+    /// Use this inside functions to not leak memory in the long run. Gets
+    /// reset after evaluating every master expression (i.e expressions at the
+    /// root level).
     scratch: Allocator,
     target: signal.Target,
 
