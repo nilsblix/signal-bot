@@ -11,17 +11,17 @@ pub const Builtin = struct {
 
 pub const all = [_]Builtin{
     .{ .name = "echo", .impl = echo },
-    .{ .name = "if",   .impl = @"if" },
-    .{ .name = "eql",  .impl = eql },
-    .{ .name = "let",  .impl = let },
-    .{ .name = "define",  .impl = define },
-    .{ .name = "not",  .impl = not },
-    .{ .name = "and",  .impl = @"and" },
-    .{ .name = "gt",  .impl = gt },
-    .{ .name = "gte",  .impl = gte },
-    .{ .name = "ls",  .impl = ls },
-    .{ .name = "lse",  .impl = lse },
-    .{ .name = "repeat",  .impl = repeat },
+    .{ .name = "if", .impl = @"if" },
+    .{ .name = "eql", .impl = eql },
+    .{ .name = "let", .impl = let },
+    .{ .name = "define", .impl = define },
+    .{ .name = "not", .impl = not },
+    .{ .name = "and", .impl = @"and" },
+    .{ .name = "gt", .impl = gt },
+    .{ .name = "gte", .impl = gte },
+    .{ .name = "ls", .impl = ls },
+    .{ .name = "lse", .impl = lse },
+    .{ .name = "repeat", .impl = repeat },
 };
 
 pub const echo = Impl{
@@ -202,7 +202,7 @@ pub const not = Impl{
 };
 
 const twoTuple = struct {
-    pub fn f(ctx: *Context, args: []const Expression) script.Error!struct{ u64, u64 } {
+    pub fn f(ctx: *Context, args: []const Expression) script.Error!struct { u64, u64 } {
         if (args.len != 2) return error.InvalidArgumentsCount;
 
         const a = a: {
@@ -282,5 +282,5 @@ pub const repeat = Impl{
 
             return .void;
         }
-    }.call
+    }.call,
 };
