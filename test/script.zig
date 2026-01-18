@@ -69,9 +69,17 @@ fn expectExpression(content: []const u8, expr: Expression) error{ TextUnexpected
             error.NoToken, error.OutOfMemory, error.InvalidToken => {
                 std.log.err("Error while getting next expression: {}\n", .{e});
             },
+            error.ParseError => {
+                if (lexer.formatLastError(alloc) catch null) |msg| {
+                    defer alloc.free(msg);
+                    std.log.err("{s}\n", .{msg});
+                } else {
+                    std.log.err("Parse error occurred\n", .{});
+                }
+            },
         }
         return error.TextUnexpectedResult;
-    };
+    } orelse return error.TextUnexpectedResult;
 
     try expectExpressionEqual(res, expr);
 }
@@ -205,6 +213,36 @@ test "complex expression" {
             },
         } }, .{ .int = 20 } },
     } };
+
+    try expectExpression(content, expr);
+}
+
+test "var at end of arguments" {
+    const content =
+        \\echo("Hello, ", name)
+    ;
+
+    const expr = Expression{
+        .fn_call = .{
+            .name = "echo",
+            .args = &.{ .{ .string = "Hello, " }, .{ .@"var" = "name" } },
+        },
+    };
+
+    try expectExpression(content, expr);
+}
+
+test "number at end of arguments" {
+    const content =
+        \\echo("Hello, ", 6767)
+    ;
+
+    const expr = Expression{
+        .fn_call = .{
+            .name = "echo",
+            .args = &.{ .{ .string = "Hello, " }, .{ .int = 6767 } },
+        },
+    };
 
     try expectExpression(content, expr);
 }

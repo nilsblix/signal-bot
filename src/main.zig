@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const signal = @import("signal.zig");
 const script = @import("script.zig");
 
-pub fn main() !void {
+pub fn main() anyerror!void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     defer {
         const deinit_status = gpa.deinit();
@@ -13,103 +13,76 @@ pub fn main() !void {
     }
     const alloc = gpa.allocator();
 
-    var arena = std.heap.ArenaAllocator.init(alloc);
-    defer arena.deinit();
+    var arena_instance = std.heap.ArenaAllocator.init(alloc);
+    defer arena_instance.deinit();
 
-    const arena_alloc = arena.allocator();
+    const arena = arena_instance.allocator();
 
-    var ctx = script.Context.init(arena_alloc, .{ .user = "nilsblix.67" });
+    var ctx = script.Context.init(arena, .{ .user = "nilsblix.67" });
     defer ctx.deinit();
 
-    try ctx.vars.put("my_name", .{ .string = "Nils Blix" });
+    try ctx.fns.put("echo", struct {
+        pub fn impl(c: *script.Context, args: []const script.Expression) script.Error!script.Expression {
+            var buf = std.ArrayList(u8).empty;
+            for (args) |arg| {
+                const val = try c.eval(arg);
+                const slice = try val.asString();
+                for (slice) |b| {
+                    buf.append(c.arena, b) catch return error.Abort;
+                }
+            }
+            std.debug.print("{s}\n", .{buf.items});
+            return .void;
+        }
+    }.impl);
 
     try ctx.fns.put("let", struct {
         pub fn impl(c: *script.Context, args: []const script.Expression) script.Error!script.Expression {
             if (args.len != 2) return error.InvalidArgumentsCount;
 
-            var val = try c.eval(args[0]);
-            const name = try val.asString();
-
-            const replacement = try c.eval(args[1]);
-            c.vars.put(name, replacement) catch return error.Abort;
+            const val = try args[0].asVar();
+            const as = args[1];
+            c.vars.put(val, as) catch return error.Abort;
 
             return .void;
         }
     }.impl);
 
-    try ctx.fns.put("echo", struct {
-        pub fn impl(c: *script.Context, args: []const script.Expression) script.Error!script.Expression {
-            for (args) |arg| {
-                const val = try c.eval(arg);
-                const text = try val.asString();
-                std.debug.print("{s}\n", .{text});
-            }
+    var args = std.process.args();
+    _ = args.skip();
+    const file_path = args.next() orelse return error.NoFilePath;
 
-            return .void;
-        }
-    }.impl);
+    var f = try std.fs.cwd().openFile(file_path, .{});
+    defer f.close();
 
-    try ctx.fns.put("concat", struct {
-        pub fn impl(c: *script.Context, args: []const script.Expression) script.Error!script.Expression {
-            if (args.len < 1) return error.InvalidArgumentsCount;
+    var reader_buf: [4096]u8 = undefined;
+    var reader = f.reader(&reader_buf);
 
-            var buffer = std.ArrayList(u8).empty;
-            defer buffer.deinit(c.arena);
+    var cmd_buf = std.ArrayList(u8).empty;
+    defer cmd_buf.deinit(alloc);
+    try reader.interface.appendRemaining(alloc, &cmd_buf, .unlimited);
+    const cmd = cmd_buf.items;
 
-            for (args) |arg| {
-                const val = try c.eval(arg);
-                const text = try val.asString();
-                buffer.appendSlice(c.arena, text) catch return error.Abort;
-            }
+    var lexer = script.Lexer.init(file_path, cmd);
 
-            const concat = buffer.toOwnedSlice(c.arena) catch return error.Abort;
-            return .{ .string = concat };
-        }
-    }.impl);
-
-    const unit_1 = script.Expression{
-        .fn_call = .{
-            .args = &.{ .{ .string = "my_runtime_name" }, .{ .string = "RuntimeNils" } },
-            .name = "let",
-        },
-    };
-
-    const unit_2 = script.Expression{
-        .fn_call = .{
-            .args = &.{ .{ .string = "other_runtime_name" }, .{ .string = "TheRuntimeBlix" } },
-            .name = "let",
-        },
-    };
-
-    const program = script.Expression{
-        .fn_call = .{
-            .args = &.{
-                .{ .string = "Hello!" },
-                .{ .fn_call = .{
-                    .args = &.{ .{ .string = "These are my names: " }, .{ .@"var" = "my_runtime_name" }, .{ .string = " " }, .{ .@"var" = "other_runtime_name" } },
-                    .name = "concat",
-                } },
+    var i: usize = 0;
+    while (true) {
+        const expr = lexer.nextExpression(arena) catch |e| switch (e) {
+            error.ParseError => {
+                const msg = try lexer.formatLastError(arena) orelse return error.Unexpected;
+                std.debug.print("{s}\n", .{msg});
+                return;
             },
-            .name = "echo",
-        },
-    };
+            error.Unexpected, error.OutOfMemory, error.NoToken, error.InvalidToken => {
+                std.log.err("Error while getting expresssion: {}\n", .{e});
+                const loc = try lexer.loc.dump(arena);
+                std.debug.print("Lexer.loc = `{s}`\n", .{loc});
+                return;
+            },
+        } orelse break;
 
-    var res = ctx.eval(unit_1) catch |e| {
-        std.log.err("Error was found while evaluating unit_1: {}\n", .{e});
-        return;
-    };
-    std.debug.print("res = {any}\n", .{res});
-
-    res = ctx.eval(unit_2) catch |e| {
-        std.log.err("Error was found while evaluating unit_2: {}\n", .{e});
-        return;
-    };
-    std.debug.print("res = {any}\n", .{res});
-
-    res = ctx.eval(program) catch |e| {
-        std.log.err("Error was found while evaluating program: {}\n", .{e});
-        return;
-    };
-
-    std.debug.print("res = {any}\n", .{res});
+        i += 1;
+        std.debug.print("========= Expression {d} ==========\n", .{i});
+        _ = try ctx.eval(expr);
+    }
 }

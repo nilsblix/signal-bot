@@ -84,10 +84,16 @@ const Token = struct {
     }
 };
 
+pub const ParseError = struct {
+    loc: Token.Loc,
+    msg: []const u8,
+};
+
 pub const Lexer = struct {
     content: []const u8,
     cur: usize,
     loc: Token.Loc,
+    last_error: ?ParseError = null,
 
     pub fn init(filepath: ?[]const u8, content: []const u8) Lexer {
         return .{
@@ -99,6 +105,32 @@ pub const Lexer = struct {
                 .row = 0,
             },
         };
+    }
+
+    fn setError(self: *Lexer, loc: Token.Loc, msg: []const u8) void {
+        self.last_error = .{ .loc = loc, .msg = msg };
+    }
+
+    pub fn clearLastError(self: *Lexer) void {
+        self.last_error = null;
+    }
+
+    /// Format the last parse error in a compiler-friendly way.
+    pub fn formatLastError(self: *Lexer, alloc: Allocator) Allocator.Error!?[]u8 {
+        const err = self.last_error orelse return null;
+        if (err.loc.filepath) |f| {
+            return try std.fmt.allocPrint(alloc, "{s}:{d}:{d}: error: {s}", .{
+                f,
+                err.loc.row + 1,
+                err.loc.col + 1,
+                err.msg,
+            });
+        }
+        return try std.fmt.allocPrint(alloc, "{d}:{d}: error: {s}", .{
+            err.loc.row + 1,
+            err.loc.col + 1,
+            err.msg,
+        });
     }
 
     fn advance(self: *Lexer) error{EndOfFile}!void {
@@ -132,12 +164,13 @@ pub const Lexer = struct {
         }
     }
 
-    pub fn nextToken(self: *Lexer) error{Unexpected}!?Token {
+    pub fn nextToken(self: *Lexer) error{ Unexpected, ParseError }!?Token {
         var start = self.cur;
         var start_loc = self.loc;
         var token_kind = Token.Kind.invalid;
 
         while (true) {
+            if (self.cur >= self.content.len) return null;
             const b = self.content[self.cur];
             const byte_kind = Token.Kind.get(b);
 
@@ -163,14 +196,19 @@ pub const Lexer = struct {
                 },
                 .invalid => {
                     self.advance() catch return null;
-                    continue;
                 },
             }
-
-            unreachable;
         }
 
         while (true) {
+            if (self.cur >= self.content.len) {
+                if (token_kind == .string) {
+                    self.setError(start_loc, "unterminated string literal");
+                    return error.ParseError;
+                }
+                return self.chopLargerToken(start, token_kind, start_loc) orelse error.Unexpected;
+            }
+
             const b = self.content[self.cur];
             const byte_kind = Token.Kind.get(b);
 
@@ -212,13 +250,31 @@ pub const Lexer = struct {
         }
     }
 
-    pub fn nextExpression(self: *Lexer, arena: Allocator) error{ Unexpected, OutOfMemory, NoToken, InvalidToken }!Expression {
-        const tok = try self.nextToken() orelse return error.NoToken;
+    fn peekNextToken(self: *Lexer) error{ Unexpected, ParseError }!?Token {
+        const cur = self.cur;
+        const loc = self.loc;
+        defer {
+            self.cur = cur;
+            self.loc = loc;
+        }
+        return try self.nextToken();
+    }
+
+    const NextExpressionError = error{ Unexpected, OutOfMemory, NoToken, InvalidToken, ParseError };
+
+    pub fn nextExpression(self: *Lexer, arena: Allocator) NextExpressionError!?Expression {
+        self.clearLastError();
+        const tok = try self.nextToken() orelse return null;
         switch (tok.kind) {
             .symbol => {
-                const next = try self.nextToken() orelse return error.Unexpected;
+                const next = try self.peekNextToken() orelse {
+                    self.setError(tok.loc, "unexpected end of input after identifier");
+                    return error.ParseError;
+                };
                 switch (next.kind) {
                     .oparen => {
+                        // consume peeked '('
+                        _ = try self.nextToken();
                         // `lexer` currently sits at the first argument or
                         // cparen. We therefore find the next non-comma token
                         // until we encounter a cparen, which becomes the
@@ -232,17 +288,29 @@ pub const Lexer = struct {
                             // cparen to call a function. null from nextToken
                             // means EOF, therefore no cparen, which is
                             // unexpected syntax.
-                            const arg_tok = try self.nextToken() orelse return error.Unexpected;
+                            const arg_tok = try self.nextToken() orelse {
+                                self.setError(self.loc, "expected ')' after arguments");
+                                return error.ParseError;
+                            };
                             switch (arg_tok.kind) {
                                 .comma => continue,
                                 .cparen => break,
-                                .invalid, .oparen => return error.Unexpected,
+                                .invalid, .oparen => {
+                                    self.setError(arg_tok.loc, "unexpected token in argument list");
+                                    return error.ParseError;
+                                },
                                 .symbol, .num, .string => {
                                     var arg_lexer = Lexer.init(self.loc.filepath, self.content);
                                     arg_lexer.cur = prev;
                                     arg_lexer.loc = prev_loc;
 
-                                    const arg = try arg_lexer.nextExpression(arena);
+                                    const arg = arg_lexer.nextExpression(arena) catch |e| {
+                                        if (e == error.ParseError) self.last_error = arg_lexer.last_error;
+                                        return e;
+                                    } orelse {
+                                        self.setError(arg_tok.loc, "found <EOF> instead of ')' after arguments");
+                                        return error.ParseError;
+                                    };
                                     try args.append(arena, arg);
 
                                     self.cur = arg_lexer.cur;
@@ -260,12 +328,16 @@ pub const Lexer = struct {
                     .cparen, .comma => {
                         return Expression{ .@"var" = tok.text };
                     },
-                    .invalid, .symbol, .num, .string => return error.Unexpected,
+                    .invalid, .symbol, .num, .string => {
+                        self.setError(next.loc, "expected '(' to start argument list");
+                        return error.ParseError;
+                    },
                 }
             },
             .num => {
                 const int = std.fmt.parseInt(u64, tok.text, 10) catch |e| {
                     std.log.warn("Token of type num could not be parsed as u64: {}\n", .{e});
+                    self.setError(tok.loc, "invalid integer literal");
                     return error.InvalidToken;
                 };
                 return Expression{ .int = int };
@@ -274,7 +346,8 @@ pub const Lexer = struct {
                 return Expression{ .string = tok.text };
             },
             .invalid, .oparen, .cparen, .comma => {
-                return error.Unexpected;
+                self.setError(tok.loc, "unexpected token");
+                return error.ParseError;
             },
         }
     }
