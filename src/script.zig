@@ -459,13 +459,13 @@ pub const Context = struct {
     /// expression result of the function.
     fns: std.StringHashMap(FnCall.Impl),
 
-    pub fn init(arena: Allocator, alloc: Allocator, target: signal.Target) Context {
+    pub fn init(arena: Allocator, scratch: Allocator, target: signal.Target) Context {
         const vars = std.StringHashMap(Expression).init(arena);
         const fns = std.StringHashMap(FnCall.Impl).init(arena);
 
         return .{
             .arena = arena,
-            .scratch = alloc,
+            .scratch = scratch,
             .target = target,
             .vars = vars,
             .fns = fns,

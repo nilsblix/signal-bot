@@ -19,10 +19,13 @@ pub fn main() anyerror!void {
 
     var arena_instance = std.heap.ArenaAllocator.init(alloc);
     defer arena_instance.deinit();
-
     const arena = arena_instance.allocator();
 
-    var ctx = Context.init(arena, alloc, .{ .user = "some user" });
+    var scratch_instance = std.heap.ArenaAllocator.init(alloc);
+    defer scratch_instance.deinit();
+    const scratch = scratch_instance.allocator();
+
+    var ctx = Context.init(arena, scratch, .{ .user = "some user" });
     defer ctx.deinit();
 
     for (builtin_fns.all) |b| {
@@ -48,9 +51,8 @@ pub fn main() anyerror!void {
 
     var i: usize = 0;
     while (true) {
-        // FIXME: Check if we can create an arena for each expression, and then
-        // dump after every expression. If we don't (which is what we currently
-        // do) we leak until end of program, which is not good.
+        _ = scratch_instance.reset(.free_all);
+
         const expr = lexer.nextExpression(arena) catch |e| switch (e) {
             error.ParseError => {
                 const msg = try lexer.formatLastError(arena) orelse return error.Unexpected;

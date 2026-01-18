@@ -21,6 +21,7 @@ pub const all = [_]Builtin{
     .{ .name = "gte",  .impl = gte },
     .{ .name = "ls",  .impl = ls },
     .{ .name = "lse",  .impl = lse },
+    .{ .name = "repeat",  .impl = repeat },
 };
 
 pub const echo = Impl{
@@ -252,4 +253,34 @@ pub const lse = Impl{
             return Expression{ .string = if (v.@"0" <= v.@"1") "true" else "false" };
         }
     }.call,
+};
+
+pub const repeat = Impl{
+    .@"fn" = struct {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+            if (args.len != 2) return error.InvalidArgumentsCount;
+
+            // This will be cleaned up as ctx.scratch gets cleanup when having
+            // evaluated this master expression.
+            var buf = std.ArrayList(u8).empty;
+
+            const n = n: {
+                const val = try ctx.eval(args[1]);
+                break :n try val.asInt();
+            };
+            for (0..n) |_| {
+                const res = try ctx.eval(args[0]);
+                const tmp = res.asString();
+                if (tmp != error.InvalidCast) {
+                    const slice = try tmp;
+                    try buf.appendSlice(ctx.scratch, slice);
+                }
+            }
+            if (buf.items.len != 0) {
+                return .{ .string = buf.items };
+            }
+
+            return .void;
+        }
+    }.call
 };
