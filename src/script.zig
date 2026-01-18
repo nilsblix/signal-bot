@@ -212,20 +212,7 @@ pub const Lexer = struct {
         }
     }
 
-    fn peekNextToken(self: *Lexer) error{Unexpected}!?Token {
-        const cur = self.cur;
-        const loc = self.loc;
-        defer {
-            self.cur = cur;
-            self.loc = loc;
-        }
-        return try self.nextToken();
-    }
-
-    /// Get the next expression.
-    ///
-    /// `alloc` should be an arena.allocator(), as not to leak memory.
-    fn nextExpression(self: *Lexer, alloc: Allocator) error{Unexpected, OutOfMemory, NoToken, InvalidToken}!Expression {
+    pub fn nextExpression(self: *Lexer, arena: Allocator) error{ Unexpected, OutOfMemory, NoToken, InvalidToken }!Expression {
         const tok = try self.nextToken() orelse return error.NoToken;
         switch (tok.kind) {
             .symbol => {
@@ -255,8 +242,8 @@ pub const Lexer = struct {
                                     arg_lexer.cur = prev;
                                     arg_lexer.loc = prev_loc;
 
-                                    const arg = try arg_lexer.nextExpression(alloc);
-                                    try args.append(alloc, arg);
+                                    const arg = try arg_lexer.nextExpression(arena);
+                                    try args.append(arena, arg);
 
                                     self.cur = arg_lexer.cur;
                                     self.loc = arg_lexer.loc;
@@ -265,7 +252,7 @@ pub const Lexer = struct {
                         }
                         return Expression{
                             .fn_call = .{
-                                .args = args.toOwnedSlice(alloc) catch return error.OutOfMemory,
+                                .args = args.toOwnedSlice(arena) catch return error.OutOfMemory,
                                 .name = tok.text,
                             },
                         };
@@ -292,200 +279,6 @@ pub const Lexer = struct {
         }
     }
 };
-
-test "Lexer.nextExpression" {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            std.log.err("memory leak", .{});
-        }
-    }
-    const alloc = gpa.allocator();
-
-    var arena = std.heap.ArenaAllocator.init(alloc);
-    defer arena.deinit();
-
-    const arena_alloc = arena.allocator();
-    const exp = std.testing.expect;
-
-    const content =
-    \\ echo(concat("Hello, ", "my_name"))
-    ;
-
-    var lexer = Lexer.init(null, content);
-    const expr = lexer.nextExpression(arena_alloc) catch |e| {
-        switch (e) {
-            error.Unexpected => {
-                const dumped = try lexer.loc.dump(alloc);
-                std.log.err("Unexpected token at {s}\n", .{dumped});
-            },
-            error.NoToken, error.OutOfMemory, error.InvalidToken => {
-                std.log.err("Error while getting next expression: {}\n", .{e});
-            },
-        }
-        return error.TextUnexpectedResult;
-    };
-
-    // TODO: FIXME: Run this test, and check all types of expressions and tokens.
-    switch (expr) {
-        .fn_call => |echo| {
-            try exp(std.mem.eql(u8, echo.name, "echo"));
-            try exp(echo.args.len == 1);
-            switch (echo.args[0]) {
-                .fn_call => |concat| {
-                    try exp(std.mem.eql(u8, concat.name, "concat"));
-                    try exp(concat.args.len == 2);
-
-                    switch (concat.args[0]) {
-                        .string => |s| {
-                            try exp(std.mem.eql(u8, s, "Hello, "));
-                        },
-                        else => return error.TextUnexpectedResult,
-                    }
-
-                    switch (concat.args[1]) {
-                        .string => |s| {
-                            try exp(std.mem.eql(u8, s, "my_name"));
-                        },
-                        else => return error.TextUnexpectedResult,
-                    }
-                },
-                else => return error.TextUnexpectedResult,
-            }
-        },
-        else => return error.TextUnexpectedResult,
-    }
-}
-
-test "Lexer.nextToken single-token" {
-    const exp = std.testing.expect;
-
-    {
-        const content = "\"Hello, world!\"";
-        var lexer = Lexer.init(null, content);
-        const res = try lexer.nextToken() orelse {
-            try exp(false);
-            return;
-        };
-        try exp(res.kind == .string);
-        try exp(std.mem.eql(u8, res.text, "Hello, world!"));
-        try exp(res.loc.col == 0 and res.loc.row == 0);
-    }
-    {
-        const content = "variable";
-        var lexer = Lexer.init(null, content);
-        const res = try lexer.nextToken() orelse {
-            try exp(false);
-            return;
-        };
-        try exp(res.kind == .symbol);
-        try exp(std.mem.eql(u8, res.text, "variable"));
-        try exp(res.loc.col == 0 and res.loc.row == 0);
-    }
-    {
-        const content = "longer_variable";
-        var lexer = Lexer.init(null, content);
-        const res = try lexer.nextToken() orelse {
-            try exp(false);
-            return;
-        };
-        try exp(res.kind == .symbol);
-        try exp(std.mem.eql(u8, res.text, "longer_variable"));
-        try exp(res.loc.col == 0 and res.loc.row == 0);
-    }
-    {
-        const content = "(  ";
-        var lexer = Lexer.init(null, content);
-        const res = try lexer.nextToken() orelse {
-            try exp(false);
-            return;
-        };
-        try exp(res.kind == .oparen);
-        try exp(std.mem.eql(u8, res.text, "("));
-        try exp(res.loc.col == 0 and res.loc.row == 0);
-    }
-    {
-        const content = "  \r\n\r\n )   ";
-        var lexer = Lexer.init(null, content);
-        const res = try lexer.nextToken() orelse {
-            try exp(false);
-            return;
-        };
-        try exp(res.kind == .cparen);
-        try exp(std.mem.eql(u8, res.text, ")"));
-        try exp(res.loc.col == 1 and res.loc.row == 2);
-    }
-    {
-        const content = "\t \t \n\n\n  ,  \n  ";
-        var lexer = Lexer.init(null, content);
-        const res = try lexer.nextToken() orelse {
-            try exp(false);
-            return;
-        };
-        try exp(res.kind == .comma);
-        try exp(std.mem.eql(u8, res.text, ","));
-        try exp(res.loc.col == 2 and res.loc.row == 3);
-    }
-}
-
-test "Lexer.nextToken same content" {
-    const content =
-        \\Hello world "This
-        \\ is actually one string..." 34
-        \\35     define(let, args(1, expr))
-    ;
-
-    var lexer = Lexer.init(null, content);
-
-    var tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "Hello"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "world"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "This\n is actually one string..."));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "34"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "35"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "define"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "("));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "let"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, ","));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "args"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "("));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "1"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, ","));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, "expr"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
-
-    tok = try lexer.nextToken() orelse return error.NoToken;
-    try std.testing.expect(std.mem.eql(u8, tok.text, ")"));
-}
 
 pub const Error = error{
     /// An unknown error was encountered. Commonly `Allocator.Error.OutOfMemory`.
@@ -547,7 +340,7 @@ pub const Expression = union(enum) {
 };
 
 pub const Context = struct {
-    alloc: Allocator,
+    arena: Allocator,
     target: signal.Target,
 
     /// Macro-style replacement. When using a variable in a script, the program
@@ -557,12 +350,12 @@ pub const Context = struct {
     /// expression result of the function.
     fns: std.StringHashMap(FnCall.Impl),
 
-    pub fn init(alloc: Allocator, target: signal.Target) Context {
-        const vars = std.StringHashMap(Expression).init(alloc);
-        const fns = std.StringHashMap(FnCall.Impl).init(alloc);
+    pub fn init(arena: Allocator, target: signal.Target) Context {
+        const vars = std.StringHashMap(Expression).init(arena);
+        const fns = std.StringHashMap(FnCall.Impl).init(arena);
 
         return .{
-            .alloc = alloc,
+            .arena = arena,
             .target = target,
             .vars = vars,
             .fns = fns,

@@ -54,15 +54,15 @@ pub fn main() !void {
             if (args.len < 1) return error.InvalidArgumentsCount;
 
             var buffer = std.ArrayList(u8).empty;
-            defer buffer.deinit(c.alloc);
+            defer buffer.deinit(c.arena);
 
             for (args) |arg| {
                 const val = try c.eval(arg);
                 const text = try val.asString();
-                buffer.appendSlice(c.alloc, text) catch return error.Abort;
+                buffer.appendSlice(c.arena, text) catch return error.Abort;
             }
 
-            const concat = buffer.toOwnedSlice(c.alloc) catch return error.Abort;
+            const concat = buffer.toOwnedSlice(c.arena) catch return error.Abort;
             return .{ .string = concat };
         }
     }.impl);
@@ -86,12 +86,7 @@ pub fn main() !void {
             .args = &.{
                 .{ .string = "Hello!" },
                 .{ .fn_call = .{
-                    .args = &.{
-                        .{ .string = "These are my names: " },
-                        .{ .@"var" = "my_runtime_name" },
-                        .{ .string = " " },
-                        .{ .@"var" = "other_runtime_name" }
-                    },
+                    .args = &.{ .{ .string = "These are my names: " }, .{ .@"var" = "my_runtime_name" }, .{ .string = " " }, .{ .@"var" = "other_runtime_name" } },
                     .name = "concat",
                 } },
             },

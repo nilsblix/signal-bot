@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
 set -ex
-find src -name "*.zig" | xargs -I {} zig test {}
+zig build test --summary all
 zig fmt .
 zig build
