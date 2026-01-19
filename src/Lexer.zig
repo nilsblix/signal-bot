@@ -278,10 +278,7 @@ pub fn nextExpression(self: *Lexer, arena: Allocator) Allocator.Error!Expression
                                     return .{
                                         .err = .{
                                             .loc = arg_tok.loc,
-                                            .msg = std.fmt.allocPrint(
-                                                arena,
-                                                "tried to parse argument `{s}` as function separator or delimiter",
-                                                .{arg_tok.text}) catch "tried to parse argument as function separator or delimiter",
+                                            .msg = std.fmt.allocPrint(arena, "tried to parse argument `{s}` as function separator or delimiter", .{arg_tok.text}) catch "tried to parse argument as function separator or delimiter",
                                         },
                                     };
                                 }
@@ -324,7 +321,7 @@ pub fn nextExpression(self: *Lexer, arena: Allocator) Allocator.Error!Expression
                                 continue;
                             },
                             .cparen => {
-                                if (should_be_arg) {
+                                if (should_be_arg and args.items.len != 0) {
                                     return .{
                                         .err = .{
                                             .loc = arg_tok.loc,

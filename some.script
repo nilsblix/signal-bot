@@ -1,9 +1,0 @@
-let(my_name, "Nils Blix")
-
-define(hello, args(name, age),
-    if(and(not(eql(name, "Isak")), ls(age, 18)), "Hell no...", "Yes bbygirl..."))
-
-echo(hello("Isak", 19))
-echo(hello("Nils", 20))
-echo(hello("Isak", 13))
-echo(hello("Nils", 11))

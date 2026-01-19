@@ -45,9 +45,8 @@ pub const echo = Impl{
                     },
                     .void, .@"var", .fn_call => {
                         return error.InvalidCast;
-                    }
+                    },
                 }
-
             }
             std.debug.print("{s}\n", .{buf.items});
             return .void;
