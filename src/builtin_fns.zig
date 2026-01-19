@@ -1,12 +1,12 @@
 const std = @import("std");
-const script = @import("script.zig");
-const Context = script.Context;
-const Expression = script.Expression;
-const Impl = script.FnCall.Impl;
+const lang = @import("lang.zig");
+const Context = lang.Context;
+const Expression = lang.Expression;
+const Impl = lang.FnCall.Impl;
 
 pub const Builtin = struct {
     name: []const u8,
-    impl: script.FnCall.Impl,
+    impl: lang.FnCall.Impl,
 };
 
 pub const all = [_]Builtin{
@@ -22,15 +22,17 @@ pub const all = [_]Builtin{
     .{ .name = "ls", .impl = ls },
     .{ .name = "lse", .impl = lse },
     .{ .name = "repeat", .impl = repeat },
+    .{ .name = "add", .impl = add },
 };
 
 pub const echo = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             var buf = std.ArrayList(u8).empty;
             defer buf.deinit(ctx.scratch);
 
             for (args) |arg| {
+                // TODO: add support for printings ints.
                 const val = try ctx.eval(arg);
                 const slice = try val.asString();
                 try buf.appendSlice(ctx.scratch, slice);
@@ -43,7 +45,7 @@ pub const echo = Impl{
 
 pub const @"if" = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len != 3) return error.InvalidArgumentsCount;
 
             const val = try ctx.eval(args[0]);
@@ -62,7 +64,7 @@ pub const @"if" = Impl{
 
 pub const eql = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len != 2) return error.InvalidArgumentsCount;
 
             const a = try ctx.eval(args[0]);
@@ -75,7 +77,7 @@ pub const eql = Impl{
 
 pub const let = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len != 2) return error.InvalidArgumentsCount;
 
             const name = try args[0].asVar();
@@ -88,7 +90,7 @@ pub const let = Impl{
 
 pub const define = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len != 3) return error.InvalidArgumentsCount;
 
             const name = try args[0].asVar();
@@ -113,10 +115,10 @@ pub const define = Impl{
                 .to_eval = args[2],
             };
 
-            const impl = script.FnCall.Impl{
+            const impl = lang.FnCall.Impl{
                 .payload = payload,
                 .@"fn" = struct {
-                    pub fn call(untyped_payload: ?*anyopaque, called_ctx: *Context, called_args: []const Expression) script.Error!Expression {
+                    pub fn call(untyped_payload: ?*anyopaque, called_ctx: *Context, called_args: []const Expression) lang.Error!Expression {
                         const p: *Payload = @ptrCast(@alignCast(untyped_payload.?));
                         if (p.inner_args.len != called_args.len) return error.InvalidArgumentsCount;
 
@@ -162,7 +164,7 @@ pub const define = Impl{
 
 pub const @"and" = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len == 0) return error.InvalidArgumentsCount;
 
             for (args) |arg| {
@@ -184,7 +186,7 @@ pub const @"and" = Impl{
 
 pub const not = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len != 1) return error.InvalidArgumentsCount;
 
             const val = try ctx.eval(args[0]);
@@ -202,7 +204,7 @@ pub const not = Impl{
 };
 
 const twoTuple = struct {
-    pub fn f(ctx: *Context, args: []const Expression) script.Error!struct { u64, u64 } {
+    pub fn f(ctx: *Context, args: []const Expression) lang.Error!struct { u64, u64 } {
         if (args.len != 2) return error.InvalidArgumentsCount;
 
         const a = a: {
@@ -221,7 +223,7 @@ const twoTuple = struct {
 
 pub const gt = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             const v = try twoTuple(ctx, args);
             return Expression{ .string = if (v.@"0" > v.@"1") "true" else "false" };
         }
@@ -230,7 +232,7 @@ pub const gt = Impl{
 
 pub const gte = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             const v = try twoTuple(ctx, args);
             return Expression{ .string = if (v.@"0" >= v.@"1") "true" else "false" };
         }
@@ -239,7 +241,7 @@ pub const gte = Impl{
 
 pub const ls = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             const v = try twoTuple(ctx, args);
             return Expression{ .string = if (v.@"0" < v.@"1") "true" else "false" };
         }
@@ -248,7 +250,7 @@ pub const ls = Impl{
 
 pub const lse = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             const v = try twoTuple(ctx, args);
             return Expression{ .string = if (v.@"0" <= v.@"1") "true" else "false" };
         }
@@ -257,7 +259,7 @@ pub const lse = Impl{
 
 pub const repeat = Impl{
     .@"fn" = struct {
-        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) script.Error!Expression {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             if (args.len != 2) return error.InvalidArgumentsCount;
 
             // This will be cleaned up as ctx.scratch gets cleanup when having
@@ -281,6 +283,23 @@ pub const repeat = Impl{
             }
 
             return .void;
+        }
+    }.call,
+};
+
+pub const add = Impl{
+    .@"fn" = struct {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
+            if (args.len == 0) return error.InvalidArgumentsCount;
+
+            var ret: u64 = 0;
+            for (args) |arg| {
+                const val = try ctx.eval(arg);
+                const int = try val.asInt();
+                ret += int;
+            }
+
+            return .{ .int = ret };
         }
     }.call,
 };

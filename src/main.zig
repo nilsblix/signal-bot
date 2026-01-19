@@ -1,11 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const signal = @import("signal.zig");
-const script = @import("script.zig");
 const builtin_fns = @import("builtin_fns.zig");
-const Lexer = script.Lexer;
-const Context = script.Context;
-const Expression = script.Expression;
+const Lexer = @import("Lexer.zig");
+const lang = @import("lang.zig");
+const Context = lang.Context;
+const Expression = lang.Expression;
 
 pub fn main() anyerror!void {
     var gpa = std.heap.DebugAllocator(.{}).init;
@@ -53,19 +53,31 @@ pub fn main() anyerror!void {
     while (true) {
         _ = scratch_instance.reset(.free_all);
 
-        const expr = lexer.nextExpression(arena) catch |e| switch (e) {
-            error.ParseError => {
-                const msg = try lexer.formatLastError(arena) orelse return error.Unexpected;
-                std.debug.print("{s}\n", .{msg});
+        const res = try lexer.nextExpression(arena);
+        const expr = expr: switch (res) {
+            .end => break,
+            .err => |e| {
+                const fmt = try e.format(scratch);
+                defer scratch.free(fmt);
+                std.debug.print("{s}\n", .{fmt});
                 return;
             },
-            error.Unexpected, error.OutOfMemory, error.NoToken, error.InvalidToken => {
-                std.log.err("Error while getting expresssion: {}\n", .{e});
-                const loc = try lexer.loc.dump(arena);
-                std.debug.print("Lexer.loc = `{s}`\n", .{loc});
-                return;
-            },
-        } orelse break;
+            .expr => |e| break :expr e,
+        };
+
+        // const expr = lexer.nextExpression(arena) catch |e| switch (e) {
+        //     error.ParseError => {
+        //         const msg = try lexer.formatLastError(arena) orelse return error.Unexpected;
+        //         std.debug.print("{s}\n", .{msg});
+        //         return;
+        //     },
+        //     error.Unexpected, error.OutOfMemory, error.NoToken, error.InvalidToken => {
+        //         std.log.err("Error while getting expresssion: {}\n", .{e});
+        //         const loc = try lexer.loc.dump(arena);
+        //         std.debug.print("Lexer.loc = `{s}`\n", .{loc});
+        //         return;
+        //     },
+        // } orelse break;
 
         i += 1;
         std.debug.print("========= Expression {d} ==========\n", .{i});

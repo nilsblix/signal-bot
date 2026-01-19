@@ -1,3 +1,4 @@
 comptime {
-    _ = @import("script.zig");
+    _ = @import("lang.zig");
+    _ = @import("lexer.zig");
 }
