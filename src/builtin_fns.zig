@@ -23,6 +23,7 @@ pub const all = [_]Builtin{
     .{ .name = "lse", .impl = lse },
     .{ .name = "repeat", .impl = repeat },
     .{ .name = "add", .impl = add },
+    .{ .name = "do", .impl = do },
 };
 
 pub const echo = Impl{
@@ -34,8 +35,19 @@ pub const echo = Impl{
             for (args) |arg| {
                 // TODO: add support for printings ints.
                 const val = try ctx.eval(arg);
-                const slice = try val.asString();
-                try buf.appendSlice(ctx.scratch, slice);
+                switch (val) {
+                    .int => |d| {
+                        const s = try std.fmt.allocPrint(ctx.scratch, "{d}", .{d});
+                        try buf.appendSlice(ctx.scratch, s);
+                    },
+                    .string => |s| {
+                        try buf.appendSlice(ctx.scratch, s);
+                    },
+                    .void, .@"var", .fn_call => {
+                        return error.InvalidCast;
+                    }
+                }
+
             }
             std.debug.print("{s}\n", .{buf.items});
             return .void;
@@ -300,6 +312,18 @@ pub const add = Impl{
             }
 
             return .{ .int = ret };
+        }
+    }.call,
+};
+
+pub const do = Impl{
+    .@"fn" = struct {
+        pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
+            for (args) |arg| {
+                _ = try ctx.eval(arg);
+            }
+
+            return .void;
         }
     }.call,
 };
