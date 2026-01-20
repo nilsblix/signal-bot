@@ -1,13 +1,13 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const signal = @import("signal.zig");
-const builtins = @import("builtins.zig");
+const Signal = @import("Signal.zig");
+
 const Parser = @import("Parser.zig");
+const builtins = @import("builtins.zig");
 const lang = @import("lang.zig");
 const Context = lang.Context;
 const Expression = lang.Expression;
 
-pub fn main() anyerror!void {
+pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     defer {
         const deinit_status = gpa.deinit();
@@ -25,48 +25,107 @@ pub fn main() anyerror!void {
     defer scratch_instance.deinit();
     const scratch = scratch_instance.allocator();
 
-    var ctx = Context.init(arena, scratch, .{ .user = "some user" });
-    defer ctx.deinit();
+    const chat = Signal.Chat{
+        .user = "FIXME: NO LEAKS HERE!!!",
+    };
 
-    for (builtins.all) |b| {
-        try ctx.fns.put(b.name, b.impl);
-    }
+    const event_text = "http://127.0.0.1:8080/api/v1/events";
+    const rpc_text = "http://127.0.0.1:8080/api/v1/rpc";
 
-    var args = std.process.args();
-    _ = args.skip();
-    const file_path = args.next() orelse return error.NoFilePath;
+    var signal = try Signal.init(alloc, chat, chat, event_text, rpc_text);
+    defer signal.deinit();
 
-    var f = try std.fs.cwd().openFile(file_path, .{});
-    defer f.close();
+    const echo = lang.FnCall.Impl{
+        .@"fn" = struct {
+            pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
+                var buf = std.ArrayList(u8).empty;
+                defer buf.deinit(ctx.scratch);
 
-    var reader_buf: [4096]u8 = undefined;
-    var reader = f.reader(&reader_buf);
+                for (args) |arg| {
+                    const val = try ctx.eval(arg);
+                    switch (val) {
+                        .int => |d| {
+                            const s = try std.fmt.allocPrint(ctx.scratch, "{d}", .{d});
+                            try buf.appendSlice(ctx.scratch, s);
+                        },
+                        .string => |s| {
+                            try buf.appendSlice(ctx.scratch, s);
+                        },
+                        .void, .@"var", .fn_call => {
+                            return error.InvalidCast;
+                        },
+                    }
+                }
 
-    var cmd_buf = std.ArrayList(u8).empty;
-    defer cmd_buf.deinit(alloc);
-    try reader.interface.appendRemaining(alloc, &cmd_buf, .unlimited);
-    const cmd = cmd_buf.items;
+                ctx.signal.sendMessage(ctx.scratch, buf.items) catch return error.SignalError;
+                return .void;
+            }
+        }.call,
+    };
 
-    var parser = Parser.init(file_path, cmd);
+    const echo_builtin = builtins.Builtin{
+        .name = "echo",
+        .impl = echo,
+    };
 
-    var i: usize = 0;
+    const all = builtins.all ++ [_]builtins.Builtin{echo_builtin};
+
     while (true) {
         _ = scratch_instance.reset(.free_all);
 
-        const res = try parser.nextExpression(arena);
-        const expr = expr: switch (res) {
-            .end => break,
-            .err => |e| {
-                const fmt = try e.format(scratch);
-                defer scratch.free(fmt);
-                std.debug.print("{s}\n", .{fmt});
-                return;
-            },
-            .expr => |e| break :expr e,
-        };
+        var context = Context.init(arena, scratch, &signal);
+        for (all) |builtin| {
+            try context.fns.put(builtin.name, builtin.impl);
+        }
 
-        i += 1;
-        std.debug.print("========= Expression {d} ==========\n", .{i});
-        _ = try ctx.eval(expr);
+        var parsed = try signal.receive(alloc);
+        defer parsed.deinit();
+
+        const msg = parsed.value;
+
+        if (msg.textMessage()) |text| {
+            if (!std.mem.startsWith(u8, text, "!")) {
+                continue;
+            }
+
+            if (text.len < 2) continue;
+
+            const content = text[1..];
+            var parser = Parser.init(null, content);
+            const res = try parser.nextExpression(arena);
+            switch (res) {
+                .end => continue,
+                .err => |err| {
+                    const fmt = try err.format(scratch);
+                    try signal.sendMessage(alloc, fmt);
+                },
+                .expr => |expr| {
+                    _ = context.eval(expr) catch |e| switch (e) {
+                        error.SignalError, error.OutOfMemory => continue,
+                        error.InvalidCast => {
+                            try signal.sendMessage(alloc, "error: Found invalid type-cast");
+                        },
+                        error.UnknownVariable => {
+                            try signal.sendMessage(alloc, "error: Found unknown variable");
+                        },
+                        error.UnknownFn => {
+                            try signal.sendMessage(alloc, "error: Found unknown function");
+                        },
+                        error.InvalidArgumentsCount => {
+                            try signal.sendMessage(alloc, "error: Invalid argument count");
+                        },
+                        error.InvalidArgumentName => {
+                            try signal.sendMessage(alloc, "error: Invalid argument name");
+                        },
+                        error.InvalidArgumentValue => {
+                            try signal.sendMessage(alloc, "error: Invalid argument value");
+                        },
+                        error.Shadowing => {
+                            try signal.sendMessage(alloc, "error: Variable shadows outside variable");
+                        },
+                    };
+                },
+            }
+        }
     }
 }

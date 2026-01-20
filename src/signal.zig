@@ -1,179 +1,166 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Child = std.process.Child;
+const Client = std.http.Client;
+const Signal = @This();
 
-pub const Filter = union(enum) {
-    receipts,
-    reaction,
-    text_message,
-    prefixed_text_message: []const u8,
-    started_writing,
-    stopped_writing,
+target: Chat,
+source: Chat,
+listener: Listener,
+rpc_uri: std.Uri,
 
-    pub fn ok(self: Filter, msg: Message) bool {
-        switch (self) {
-            .receipts => unreachable,
-            .reaction => {
-                return msg.reaction() != null;
-            },
-            .text_message => {
-                return msg.textMessage() != null;
-            },
-            .prefixed_text_message => |prefix| {
-                const text = msg.textMessage() orelse return false;
-                return std.mem.startsWith(u8, text, prefix);
-            },
-            .started_writing => {
-                const typ = msg.typingMessage() orelse return false;
-                return typ.action == .STARTED;
-            },
-            .stopped_writing => {
-                const typ = msg.typingMessage() orelse return false;
-                return typ.action == .STOPPED;
-            },
-        }
-    }
-};
-
-/// Caller must call either `child.kill()` or `child.wait()`, as per Child
-/// standards.
-fn createChild(alloc: Allocator) Child {
-    var c = Child.init(&.{}, alloc);
-    c.stdin_behavior = .Ignore;
-    c.stdout_behavior = .Pipe;
-    c.stderr_behavior = .Ignore;
-    return c;
-}
-
-fn deinitChild(c: *Child) void {
-    _ = c.kill() catch |e| {
-        std.log.err("Killing was unsuccessful: {}\n", .{e});
-    };
-    _ = c.wait() catch |e| {
-        std.log.err("Waiting was unsuccessful: {}\n", .{e});
+pub fn init(
+    alloc: Allocator,
+    target: Chat,
+    source: Chat,
+    event_uri: []const u8,
+    rpc_uri: []const u8,
+) (Listener.InitError || std.Uri.ParseError)!Signal {
+    return Signal{
+        .target = target,
+        .source = source,
+        .listener = try Listener.init(alloc, event_uri),
+        .rpc_uri = try std.Uri.parse(rpc_uri),
     };
 }
 
-const Received = struct {
-    parsed: std.json.Parsed(Message),
-    type: Filter,
-};
-
-/// Blocks until an okay message has been received. It then returns that okay
-/// message, and kills the child process.
-///
-/// I am okay with killing the child process when having found an okay message,
-/// as I would need to kill it either way when wanting to send a message, i.e
-/// respond to that received message.
-///
-/// `deinit` needs to be called on the returned structure.
-pub fn receive(alloc: Allocator, okay_filters: []const Filter) !Received {
-    var c = createChild(alloc);
-    defer deinitChild(&c);
-
-    const argv = [_][]const u8{
-        "signal-cli",
-        "--output=json",
-        "receive",
-        "--timeout=-1",
-        "--ignore-stories",
-        "--ignore-attachments",
-    };
-    c.argv = @ptrCast(&argv);
-    try c.spawn();
-
-    var stdout = c.stdout orelse return error.ImpossibleSituation;
-
-    var reader_buf: [4096]u8 = undefined;
-    var reader = stdout.reader(&reader_buf);
-
-    while (true) {
-        const new = try reader.interface.takeDelimiter('\n') orelse return error.UnexpectedEof;
-
-        std.debug.assert(new.len > 0);
-
-        // Here we have updated the current message, and can safely parse it,
-        // and then check it against the filters. If ok, then we can return the parsed
-        // value.
-        const line = try alloc.dupe(u8, new);
-        errdefer alloc.free(line);
-        const parsed = try Message.parse(alloc, line);
-
-        const message = parsed.value;
-        for (okay_filters) |filter| {
-            if (filter.ok(message)) {
-                return Received{
-                    .parsed = parsed,
-                    .type = filter,
-                };
-            }
-        }
-
-        // We do not defer this because if we return `parsed` we want the
-        // caller to deinit that, not us.
-        parsed.deinit();
-        alloc.free(line);
-    }
+pub fn deinit(self: *Signal) void {
+    self.listener.deinit();
 }
 
-pub fn getStatus(c: *Child) ![]const u8 {
-    var f = c.stdout orelse return error.InvalidState;
-    var buf: [4096]u8 = undefined;
-    const n = try f.readAll(&buf);
-    return std.mem.trim(u8, buf[0..n], "\n");
-}
-
-pub const Target = union(enum) {
+pub const Chat = union(enum) {
     group: []const u8,
     user: []const u8,
     phone: []const u8,
+};
 
-    pub const SendOptions = struct {
-        items: [2][]const u8,
-        len: usize,
-    };
+const Listener = struct {
+    client: Client,
+    request: Client.Request,
+    response: Client.Response,
+    reader_buf: [4096]u8,
+    reader: *std.Io.Reader,
 
-    pub fn sendOptions(self: Target) struct { [2][]const u8, usize } {
-        return switch (self) {
-            .group => |g| .{
-                .{ "-g", g },
-                2,
-            },
-            .user => |u| .{
-                .{ "-u", u },
-                2,
-            },
-            .phone => |p| .{
-                .{ p, "" }, // The last `""` will be discarded when slicing.
-                1,
-            },
+    pub const InitError = error{InvalidHttpStatus} || std.Uri.ParseError || Client.RequestError || Client.Request.ReceiveHeadError;
+
+    fn init(alloc: Allocator, uri_text: []const u8) InitError!Listener {
+        var client = Client{ .allocator = alloc };
+        const uri = try std.Uri.parse(uri_text);
+
+        const extra_headers = [_]std.http.Header{
+            .{ .name = "Accept", .value = "text/event-stream" },
         };
+
+        var req = try client.request(.GET, uri, .{
+            .headers = .{ .user_agent = .{ .override = "signal-bot" } },
+            .extra_headers = &extra_headers,
+            .keep_alive = false,
+        });
+
+        try req.sendBodiless();
+        var resp = try req.receiveHead(&.{});
+
+        if (resp.head.status.class() != .success) {
+            return error.InvalidHttpStatus;
+        }
+
+        var buf: [4096]u8 = undefined;
+        const reader = resp.reader(&buf);
+
+        return Listener{
+            .client = client,
+            .request = req,
+            .response = resp,
+            .reader_buf = buf,
+            .reader = reader,
+        };
+    }
+
+    fn deinit(self: *Listener) void {
+        self.request.deinit();
+        self.client.deinit();
+    }
+
+    /// Blocks until a message has been received.
+    ///
+    /// Will receive all messages coming to the current logged-in account. Only
+    /// receives messages from the http-stream with the prefix `data:`.
+    fn receiveJson(self: *Listener) error{ ReadFailed, StreamTooLong }![]u8 {
+        while (true) {
+            const incoming = try self.reader.takeDelimiter('\n') orelse continue;
+            if (!std.mem.startsWith(u8, incoming, "data:")) {
+                continue;
+            }
+
+            return incoming[5..];
+        }
     }
 };
 
-pub fn sendMessage(alloc: Allocator, message: []const u8, target: Target) !void {
-    var c = createChild(alloc);
-    defer deinitChild(&c);
+pub fn receive(self: *Signal, alloc: Allocator) error{ OutOfMemory, ListenerError, MessageParseError }!std.json.Parsed(Message) {
+    const json = self.listener.receiveJson() catch return error.ListenerError;
+    const dupe = try alloc.dupe(u8, json);
+    defer alloc.free(dupe);
 
-    const options = target.sendOptions();
-    const argv = [_][]const u8{ "signal-cli", "send", "-m", message } ++ options.@"0";
-    c.argv = argv[0 .. 4 + options.@"1"];
-
-    try c.spawn();
-    const out = try getStatus(&c);
-    _ = std.fmt.parseInt(i64, out, 10) catch |e| switch (e) {
-        error.Overflow => {},
-        error.InvalidCharacter => {
-            std.log.err("Invalid status-code after sending a message: `{s}`", .{out});
-            return error.InvalidStatus;
-        },
-    };
+    return Message.parse(alloc, dupe) catch return error.MessageParseError;
 }
 
-pub fn sendMessageSafely(alloc: Allocator, message: []const u8, target: Target) void {
-    sendMessage(alloc, message, target) catch |e| {
-        std.log.err("Something went wrong in `signal.sendMessage`: {}\n", .{e});
+fn sendJsonRpc(self: *const Signal, alloc: Allocator, body: []const u8) !void {
+    var client = Client{ .allocator = alloc };
+    defer client.deinit();
+
+    var req = try client.request(.POST, self.rpc_uri, .{
+        .headers = .{
+            .user_agent = .{ .override = "signal-bot" },
+            .content_type = .{ .override = "application/json" },
+        },
+    });
+    defer req.deinit();
+
+    req.transfer_encoding = .{ .content_length = body.len };
+    try req.sendBodyComplete(@constCast(body));
+
+    const resp = try req.receiveHead(&.{});
+    const status = resp.head.status;
+    if (status.class() != .success) {
+        return error.InvalidHttpStatus;
+    }
+}
+
+pub fn sendMessage(self: *const Signal, alloc: Allocator, msg: []const u8) !void {
+    const Params = struct {
+        message: []const u8,
+        recipient: ?[]const []const u8 = null,
+        username: ?[]const []const u8 = null,
+        groupId: ?[]const u8 = null,
     };
+
+    const Request = struct {
+        jsonrpc: []const u8 = "2.0",
+        method: []const u8,
+        params: Params,
+        id: usize,
+    };
+
+    var params = Params{
+        .message = msg,
+    };
+
+    switch (self.target) {
+        .group => |g| params.groupId = g,
+        .user => |u| params.username = &.{u},
+        .phone => |p| params.recipient = &.{p},
+    }
+
+    const req_body = Request{
+        .method = "send",
+        .params = params,
+        .id = @intCast(std.time.microTimestamp()),
+    };
+
+    const json_body = try std.fmt.allocPrint(alloc, "{f}", .{std.json.fmt(req_body, .{})});
+    defer alloc.free(json_body);
+
+    try self.sendJsonRpc(alloc, json_body);
 }
 
 pub const Message = struct {

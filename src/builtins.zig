@@ -10,7 +10,7 @@ pub const Builtin = struct {
 };
 
 pub const all = [_]Builtin{
-    .{ .name = "echo", .impl = echo },
+    .{ .name = "log", .impl = log },
     .{ .name = "if", .impl = @"if" },
     .{ .name = "eql", .impl = eql },
     .{ .name = "let", .impl = let },
@@ -26,14 +26,13 @@ pub const all = [_]Builtin{
     .{ .name = "do", .impl = do },
 };
 
-pub const echo = Impl{
+pub const log = Impl{
     .@"fn" = struct {
         pub fn call(_: ?*anyopaque, ctx: *Context, args: []const Expression) lang.Error!Expression {
             var buf = std.ArrayList(u8).empty;
             defer buf.deinit(ctx.scratch);
 
             for (args) |arg| {
-                // TODO: add support for printings ints.
                 const val = try ctx.eval(arg);
                 switch (val) {
                     .int => |d| {

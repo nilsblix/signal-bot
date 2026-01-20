@@ -1,8 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const signal = @import("signal.zig");
+const Signal = @import("Signal.zig");
 
 pub const Error = error{
+    SignalError,
     OutOfMemory,
     /// Expression could not cast to the wanted type.
     InvalidCast,
@@ -104,7 +105,6 @@ pub const Context = struct {
     /// reset after evaluating every master expression (i.e expressions at the
     /// root level).
     scratch: Allocator,
-    target: signal.Target,
 
     /// Macro-style replacement. When using a variable in a script, the program
     /// simply replaces that variable with the corresponding expression.
@@ -113,16 +113,19 @@ pub const Context = struct {
     /// expression result of the function.
     fns: std.StringHashMap(FnCall.Impl),
 
-    pub fn init(arena: Allocator, scratch: Allocator, target: signal.Target) Context {
+    /// May be used in builtins.
+    signal: *Signal,
+
+    pub fn init(arena: Allocator, scratch: Allocator, signal: *Signal) Context {
         const vars = std.StringHashMap(Expression).init(arena);
         const fns = std.StringHashMap(FnCall.Impl).init(arena);
 
         return .{
             .arena = arena,
             .scratch = scratch,
-            .target = target,
             .vars = vars,
             .fns = fns,
+            .signal = signal,
         };
     }
 
