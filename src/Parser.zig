@@ -30,7 +30,7 @@ pub const Token = struct {
         comma,
         /// End of file.
         end,
-        invalid,
+        illegal,
 
         fn get(b: u8) Kind {
             return switch (b) {
@@ -41,7 +41,7 @@ pub const Token = struct {
                 ')' => .cparen,
                 ',' => .comma,
                 0 => .end,
-                else => .invalid,
+                else => .illegal,
             };
         }
     };
@@ -122,13 +122,13 @@ pub fn advance(self: *Parser) error{EndOfFile}!void {
     self.cur += 1;
 }
 
-pub fn skipInvalids(self: *Parser) Token.Kind {
+pub fn skipIllegals(self: *Parser) Token.Kind {
     while (true) {
         if (self.cur >= self.content.len) return .end;
         const b = self.content[self.cur];
         const kind = Token.Kind.get(b);
 
-        if (kind != .invalid) {
+        if (kind != .illegal) {
             return kind;
         }
 
@@ -145,7 +145,7 @@ fn end(self: Parser) Token {
 }
 
 pub fn nextToken(self: *Parser) Token {
-    const kind = self.skipInvalids();
+    const kind = self.skipIllegals();
     const start = self.cur;
     const start_loc = self.loc();
 
@@ -186,7 +186,7 @@ pub fn nextToken(self: *Parser) Token {
                 }
             }
         },
-        .oparen, .cparen, .comma, .invalid => {
+        .oparen, .cparen, .comma, .illegal => {
             self.advance() catch return self.end();
 
             return Token{
@@ -224,10 +224,10 @@ pub const ParseError = struct {
         });
     }
 
-    fn invalid(scratch: Allocator, tok: Token) ParseError {
+    fn illegal(scratch: Allocator, tok: Token) ParseError {
         return .{
             .loc = tok.loc,
-            .msg = std.fmt.allocPrint(scratch, "found invalid token: {s}", .{tok.text}) catch "found invalid token",
+            .msg = std.fmt.allocPrint(scratch, "found illegal token: {s}", .{tok.text}) catch "found illegal token",
         };
     }
 };
@@ -251,7 +251,7 @@ pub const ExpressionResult = union(enum) {
 };
 
 pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!ExpressionResult {
-    _ = self.skipInvalids();
+    _ = self.skipIllegals();
     const start_loc = self.loc();
     const tok = self.nextToken();
 
@@ -343,7 +343,7 @@ pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!Expressio
                                     .msg = "expected ')' to close function arguments",
                                 },
                             },
-                            .invalid => return .{ .err = ParseError.invalid(arena, arg_tok) },
+                            .illegal => return .{ .err = ParseError.illegal(arena, arg_tok) },
                         }
                     }
 
@@ -363,7 +363,7 @@ pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!Expressio
                         .msg = "two non-function-calls cannot follow eachother",
                     },
                 },
-                .invalid => return .{ .err = ParseError.invalid(arena, next_token) },
+                .illegal => return .{ .err = ParseError.illegal(arena, next_token) },
             }
         },
         .num => {
@@ -399,8 +399,8 @@ pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!Expressio
                 .msg = "expression cannot start with ','",
             },
         },
-        .invalid => {
-            return .{ .err = ParseError.invalid(arena, tok) };
+        .illegal => {
+            return .{ .err = ParseError.illegal(arena, tok) };
         },
         .end => return .end,
     }

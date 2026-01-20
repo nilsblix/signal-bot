@@ -97,11 +97,11 @@ test "advance" {
     try std.testing.expectError(error.EndOfFile, parser.advance());
 }
 
-test "skip invalids" {
+test "skip illegals" {
     const content = "  \r \t\n\n  token";
     var lexer = Parser.init(null, content);
 
-    const kind = lexer.skipInvalids();
+    const kind = lexer.skipIllegals();
     try std.testing.expectEqual(kind, .symbol);
 
     const loc = lexer.loc();
