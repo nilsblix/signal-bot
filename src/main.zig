@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const signal = @import("signal.zig");
-const builtin_fns = @import("builtin_fns.zig");
-const Lexer = @import("Lexer.zig");
+const builtins = @import("builtins.zig");
+const Parser = @import("Parser.zig");
 const lang = @import("lang.zig");
 const Context = lang.Context;
 const Expression = lang.Expression;
@@ -28,7 +28,7 @@ pub fn main() anyerror!void {
     var ctx = Context.init(arena, scratch, .{ .user = "some user" });
     defer ctx.deinit();
 
-    for (builtin_fns.all) |b| {
+    for (builtins.all) |b| {
         try ctx.fns.put(b.name, b.impl);
     }
 
@@ -47,13 +47,13 @@ pub fn main() anyerror!void {
     try reader.interface.appendRemaining(alloc, &cmd_buf, .unlimited);
     const cmd = cmd_buf.items;
 
-    var lexer = Lexer.init(file_path, cmd);
+    var parser = Parser.init(file_path, cmd);
 
     var i: usize = 0;
     while (true) {
         _ = scratch_instance.reset(.free_all);
 
-        const res = try lexer.nextExpression(arena);
+        const res = try parser.nextExpression(arena);
         const expr = expr: switch (res) {
             .end => break,
             .err => |e| {
@@ -64,20 +64,6 @@ pub fn main() anyerror!void {
             },
             .expr => |e| break :expr e,
         };
-
-        // const expr = lexer.nextExpression(arena) catch |e| switch (e) {
-        //     error.ParseError => {
-        //         const msg = try lexer.formatLastError(arena) orelse return error.Unexpected;
-        //         std.debug.print("{s}\n", .{msg});
-        //         return;
-        //     },
-        //     error.Unexpected, error.OutOfMemory, error.NoToken, error.InvalidToken => {
-        //         std.log.err("Error while getting expresssion: {}\n", .{e});
-        //         const loc = try lexer.loc.dump(arena);
-        //         std.debug.print("Lexer.loc = `{s}`\n", .{loc});
-        //         return;
-        //     },
-        // } orelse break;
 
         i += 1;
         std.debug.print("========= Expression {d} ==========\n", .{i});

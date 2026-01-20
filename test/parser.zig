@@ -1,8 +1,8 @@
 const std = @import("std");
 const app = @import("app");
 const lang = app.lang;
-const Lexer = app.Lexer;
-const Token = Lexer.Token;
+const Parser = app.Parser;
+const Token = Parser.Token;
 const Expression = lang.Expression;
 
 const ExprCmp = struct {
@@ -38,68 +38,68 @@ const ExprCmp = struct {
 
 test "advance" {
     const content = " \t\r\n  \n \t ";
-    var lexer = Lexer.init(null, content);
+    var parser = Parser.init(null, content);
 
-    try std.testing.expectEqual(lexer.cur, 0);
-    try std.testing.expectEqual(lexer.bol, 0);
-    try std.testing.expectEqual(lexer.row, 0);
+    try std.testing.expectEqual(parser.cur, 0);
+    try std.testing.expectEqual(parser.bol, 0);
+    try std.testing.expectEqual(parser.row, 0);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 1);
-    try std.testing.expectEqual(lexer.bol, 0);
-    try std.testing.expectEqual(lexer.row, 0);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 1);
+    try std.testing.expectEqual(parser.bol, 0);
+    try std.testing.expectEqual(parser.row, 0);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 2);
-    try std.testing.expectEqual(lexer.bol, 0);
-    try std.testing.expectEqual(lexer.row, 0);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 2);
+    try std.testing.expectEqual(parser.bol, 0);
+    try std.testing.expectEqual(parser.row, 0);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 3);
-    try std.testing.expectEqual(lexer.bol, 0);
-    try std.testing.expectEqual(lexer.row, 0);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 3);
+    try std.testing.expectEqual(parser.bol, 0);
+    try std.testing.expectEqual(parser.row, 0);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 4);
-    try std.testing.expectEqual(lexer.bol, 4);
-    try std.testing.expectEqual(lexer.row, 1);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 4);
+    try std.testing.expectEqual(parser.bol, 4);
+    try std.testing.expectEqual(parser.row, 1);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 5);
-    try std.testing.expectEqual(lexer.bol, 4);
-    try std.testing.expectEqual(lexer.row, 1);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 5);
+    try std.testing.expectEqual(parser.bol, 4);
+    try std.testing.expectEqual(parser.row, 1);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 6);
-    try std.testing.expectEqual(lexer.bol, 4);
-    try std.testing.expectEqual(lexer.row, 1);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 6);
+    try std.testing.expectEqual(parser.bol, 4);
+    try std.testing.expectEqual(parser.row, 1);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 7);
-    try std.testing.expectEqual(lexer.bol, 7);
-    try std.testing.expectEqual(lexer.row, 2);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 7);
+    try std.testing.expectEqual(parser.bol, 7);
+    try std.testing.expectEqual(parser.row, 2);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 8);
-    try std.testing.expectEqual(lexer.bol, 7);
-    try std.testing.expectEqual(lexer.row, 2);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 8);
+    try std.testing.expectEqual(parser.bol, 7);
+    try std.testing.expectEqual(parser.row, 2);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 9);
-    try std.testing.expectEqual(lexer.bol, 7);
-    try std.testing.expectEqual(lexer.row, 2);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 9);
+    try std.testing.expectEqual(parser.bol, 7);
+    try std.testing.expectEqual(parser.row, 2);
 
-    lexer.advance() catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(lexer.cur, 10);
-    try std.testing.expectEqual(lexer.bol, 7);
-    try std.testing.expectEqual(lexer.row, 2);
+    parser.advance() catch return error.TestUnexpectedResult;
+    try std.testing.expectEqual(parser.cur, 10);
+    try std.testing.expectEqual(parser.bol, 7);
+    try std.testing.expectEqual(parser.row, 2);
 
-    try std.testing.expectError(error.EndOfFile, lexer.advance());
+    try std.testing.expectError(error.EndOfFile, parser.advance());
 }
 
 test "skip invalids" {
     const content = "  \r \t\n\n  token";
-    var lexer = Lexer.init(null, content);
+    var lexer = Parser.init(null, content);
 
     const kind = lexer.skipInvalids();
     try std.testing.expectEqual(kind, .symbol);
@@ -108,7 +108,7 @@ test "skip invalids" {
     try std.testing.expectEqual(loc, Token.Location{ .filepath = null, .col = 2, .row = 2 });
 }
 
-fn expectNextToken(lexer: *Lexer, tok: Token) anyerror!void {
+fn expectNextToken(lexer: *Parser, tok: Token) anyerror!void {
     const res = lexer.nextToken();
     try std.testing.expectEqual(res.kind, tok.kind);
     try std.testing.expectEqual(res.loc, tok.loc);
@@ -118,7 +118,7 @@ fn expectNextToken(lexer: *Lexer, tok: Token) anyerror!void {
 test "get next token" {
     {
         const content = "\"Hello, world!\"";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .string,
             .text = "Hello, world!",
@@ -132,7 +132,7 @@ test "get next token" {
     }
     {
         const content = "variable";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .symbol,
             .text = "variable",
@@ -146,7 +146,7 @@ test "get next token" {
     }
     {
         const content = "longer_variable";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .symbol,
             .text = "longer_variable",
@@ -160,7 +160,7 @@ test "get next token" {
     }
     {
         const content = "  (  ";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .oparen,
             .text = "(",
@@ -174,7 +174,7 @@ test "get next token" {
     }
     {
         const content = "  \r\n\r\n )   ";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .cparen,
             .text = ")",
@@ -188,7 +188,7 @@ test "get next token" {
     }
     {
         const content = "\t \t \n\n\n  ,  \n  ";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .comma,
             .text = ",",
@@ -202,7 +202,7 @@ test "get next token" {
     }
     {
         const content = "   \t\t  \r\n \n \n ";
-        var lexer = Lexer.init(null, content);
+        var lexer = Parser.init(null, content);
         const exp = Token{
             .kind = .end,
             .text = "",
@@ -223,7 +223,7 @@ test "multiple next tokens" {
         \\35     define(let, args(1, expr))
     ;
 
-    var lexer = Lexer.init(null, content);
+    var lexer = Parser.init(null, content);
 
     var tok = lexer.nextToken();
     try std.testing.expectEqualStrings(tok.text, "Hello");
@@ -277,7 +277,7 @@ test "multiple next tokens" {
     try std.testing.expectEqual(tok.kind, Token.Kind.end);
 }
 
-fn expectExpression(content: []const u8, exp: Lexer.ExpressionResult) anyerror!void {
+fn expectExpression(content: []const u8, exp: Parser.ExpressionResult) anyerror!void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     defer {
         const deinit_status = gpa.deinit();
@@ -292,7 +292,7 @@ fn expectExpression(content: []const u8, exp: Lexer.ExpressionResult) anyerror!v
 
     const scratch = scratch_instance.allocator();
 
-    var lexer = Lexer.init(null, content);
+    var lexer = Parser.init(null, content);
     const res = try lexer.nextExpression(scratch);
 
     switch (res) {

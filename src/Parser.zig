@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const lang = @import("lang.zig");
 const Expression = lang.Expression;
 
-const Lexer = @This();
+const Parser = @This();
 
 filepath: ?[]const u8,
 content: []const u8,
@@ -71,7 +71,7 @@ pub const Token = struct {
     }
 };
 
-pub fn init(filepath: ?[]const u8, content: []const u8) Lexer {
+pub fn init(filepath: ?[]const u8, content: []const u8) Parser {
     return .{
         .filepath = filepath,
         .content = content,
@@ -81,7 +81,7 @@ pub fn init(filepath: ?[]const u8, content: []const u8) Lexer {
     };
 }
 
-pub fn formatLastError(self: *Lexer, alloc: Allocator) Allocator.Error!?[]u8 {
+pub fn formatLastError(self: *Parser, alloc: Allocator) Allocator.Error!?[]u8 {
     const err = self.last_error orelse return null;
     if (err.loc.filepath) |f| {
         return try std.fmt.allocPrint(alloc, "{s}:{d}:{d}: error: {s}", .{
@@ -99,7 +99,7 @@ pub fn formatLastError(self: *Lexer, alloc: Allocator) Allocator.Error!?[]u8 {
 }
 
 // Zero-indexed location.
-pub fn loc(self: Lexer) Token.Location {
+pub fn loc(self: Parser) Token.Location {
     return .{
         .filepath = self.filepath,
         .col = self.cur - self.bol,
@@ -108,7 +108,7 @@ pub fn loc(self: Lexer) Token.Location {
 }
 
 /// Checks before and after advancing one step for EOF.
-pub fn advance(self: *Lexer) error{EndOfFile}!void {
+pub fn advance(self: *Parser) error{EndOfFile}!void {
     if (self.cur >= self.content.len) {
         return error.EndOfFile;
     }
@@ -122,7 +122,7 @@ pub fn advance(self: *Lexer) error{EndOfFile}!void {
     self.cur += 1;
 }
 
-pub fn skipInvalids(self: *Lexer) Token.Kind {
+pub fn skipInvalids(self: *Parser) Token.Kind {
     while (true) {
         if (self.cur >= self.content.len) return .end;
         const b = self.content[self.cur];
@@ -136,7 +136,7 @@ pub fn skipInvalids(self: *Lexer) Token.Kind {
     }
 }
 
-fn end(self: Lexer) Token {
+fn end(self: Parser) Token {
     return .{
         .kind = .end,
         .text = "",
@@ -144,7 +144,7 @@ fn end(self: Lexer) Token {
     };
 }
 
-pub fn nextToken(self: *Lexer) Token {
+pub fn nextToken(self: *Parser) Token {
     const kind = self.skipInvalids();
     const start = self.cur;
     const start_loc = self.loc();
@@ -232,7 +232,7 @@ pub const ParseError = struct {
     }
 };
 
-fn peekNextToken(self: *Lexer) Token {
+fn peekNextToken(self: *Parser) Token {
     const cur = self.cur;
     const bol = self.bol;
     const row = self.row;
@@ -250,7 +250,7 @@ pub const ExpressionResult = union(enum) {
     err: ParseError,
 };
 
-pub fn nextExpression(self: *Lexer, arena: Allocator) Allocator.Error!ExpressionResult {
+pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!ExpressionResult {
     _ = self.skipInvalids();
     const start_loc = self.loc();
     const tok = self.nextToken();
@@ -283,16 +283,16 @@ pub fn nextExpression(self: *Lexer, arena: Allocator) Allocator.Error!Expression
                                     };
                                 }
 
-                                var arg_lexer = Lexer.init(self.filepath, self.content);
-                                arg_lexer.cur = prev_cur;
-                                arg_lexer.bol = prev_bol;
-                                arg_lexer.row = prev_row;
+                                var arg_parser = Parser.init(self.filepath, self.content);
+                                arg_parser.cur = prev_cur;
+                                arg_parser.bol = prev_bol;
+                                arg_parser.row = prev_row;
 
-                                const res = try arg_lexer.nextExpression(arena);
+                                const res = try arg_parser.nextExpression(arena);
                                 const arg = switch (res) {
                                     .end => return .{
                                         .err = .{
-                                            .loc = arg_lexer.loc(),
+                                            .loc = arg_parser.loc(),
                                             .msg = "found unexpected end of file",
                                         },
                                     },
@@ -302,9 +302,9 @@ pub fn nextExpression(self: *Lexer, arena: Allocator) Allocator.Error!Expression
 
                                 try args.append(arena, arg);
 
-                                self.cur = arg_lexer.cur;
-                                self.bol = arg_lexer.bol;
-                                self.row = arg_lexer.row;
+                                self.cur = arg_parser.cur;
+                                self.bol = arg_parser.bol;
+                                self.row = arg_parser.row;
 
                                 should_be_arg = false;
                             },
