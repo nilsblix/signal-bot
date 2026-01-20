@@ -97,13 +97,27 @@ pub const Expression = union(enum) {
 };
 
 pub const Context = struct {
-    /// Be careful with this arena. `Context` is a very long-living structure,
-    /// so only allocate on the arena if absolutely necessary, ex permanent
-    /// memory storage.
+    /// Context contains two arenas: `arena` and `scratch`. In some usecases of
+    /// this scripting language, they both have the same scope/lifetime, but in
+    /// other cases they have different applications. I will give two examples:
+    ///
+    /// If this program parses and evaluates in a repl-fashion, it makes sense
+    /// for both arena to never be cleared unless manually told so/program
+    /// ends, while scratch is only meant for temporary expression storage.
+    /// scratch will be cleared after evaluating each `top-level expression`.
+    ///
+    /// If this program is running as a chatbot (i.e very long running process)
+    /// it doesn't really make sense for the arena to fill up on loads of
+    /// memory, and might therefore want to be cleared after every command,
+    /// which might very well be on each expression, thus sharing the same
+    /// lifetime as scratch.
     arena: Allocator,
+    /// See the doc-comment for `arena` to see the difference between these
+    /// allocators.
+    ///
     /// Use this inside functions to not leak memory in the long run. Gets
-    /// reset after evaluating every master expression (i.e expressions at the
-    /// root level).
+    /// reset after evaluating every top-level expression (i.e expressions at
+    /// the root level).
     scratch: Allocator,
 
     /// Macro-style replacement. When using a variable in a script, the program

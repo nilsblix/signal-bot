@@ -1,4 +1,7 @@
 .direnv/
 .zig-cache/
 zig-out/
-signal_info.md
+
+# The bot script-files are named with *.nils
+*.nils
+*.json
