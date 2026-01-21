@@ -116,11 +116,61 @@ fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) 
 
     const eval_cmd = "eval";
     if (author.canRawEval(min) and std.mem.startsWith(u8, unprefixed, eval_cmd)) {
-        try self.rawEval(mem, unprefixed[eval_cmd.len..], author);
+        try self.rawEval(mem, unprefixed[eval_cmd.len..], author, &.{});
     }
+
+    var parser = Parser.init(null, unprefixed);
+    var tok = parser.nextToken();
+    if (tok.kind != .symbol) return;
+
+    const cmd = Command.match(tok.text) orelse return;
+
+    var buf = std.ArrayList(lang.Expression).empty;
+    while (true) {
+        tok = parser.nextToken();
+        switch (tok.kind) {
+            .symbol => {
+                const fmt = try std.fmt.allocPrint(mem.scratch, "error: cannot call command with a non-literal: {s}", .{tok.text});
+                self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
+                return;
+            },
+            .num => {
+                const n = std.fmt.parseInt(u64, tok.text, 10) catch |e| {
+                    const fmt = try std.fmt.allocPrint(mem.scratch, "error: could not parse int {s}: {}", .{tok.text, e});
+                    self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
+                    return;
+                };
+
+                try buf.append(mem.scratch, .{ .int = n });
+            },
+            .string => {
+                try buf.append(mem.scratch, .{ .string = tok.text });
+            },
+            .oparen => {
+                self.signal.sendMessage(mem.scratch, "error: command argument cannot be '('") catch return error.Signal;
+                return;
+            },
+            .cparen => {
+                self.signal.sendMessage(mem.scratch, "error: command argument cannot be ')'") catch return error.Signal;
+                return;
+            },
+            .comma => {
+                self.signal.sendMessage(mem.scratch, "error: command argument cannot be ','") catch return error.Signal;
+                return;
+            },
+            .illegal => {
+                const fmt = try std.fmt.allocPrint(mem.scratch, "error: found invalid token: {s}", .{tok.text});
+                self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
+                return;
+            },
+            .end => break,
+        }
+    }
+
+    try self.rawEval(mem, cmd.script, author, buf.items[0..]);
 }
 
-fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User) error{ OutOfMemory, Signal }!void {
+fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User, user_args: []const lang.Expression) error{ OutOfMemory, Signal }!void {
     var parser = Parser.init(null, script);
     const res = try parser.nextExpression(mem.scratch);
     switch (res) {
@@ -135,7 +185,7 @@ fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User) error
             var itp = Interpreter.init(mem.arena, mem.scratch, self);
 
             try itp.addBuiltins();
-            try addSpecificBuiltins(&itp, author);
+            try addSpecificBuiltins(&itp, author, user_args);
 
             const ret_expr = itp.eval(expr) catch |err| {
                 try mapLangError(self, mem.scratch, err);
@@ -177,12 +227,72 @@ fn mapLangError(self: *Bot, scratch: Allocator, err: lang.Error) error{ OutOfMem
     }
 }
 
-fn addSpecificBuiltins(itp: *Interpreter, author: Config.User) !void {
+fn addSpecificBuiltins(itp: *Interpreter, author: Config.User, user_args: []const lang.Expression) !void {
     try itp.fns.put("echo", echo);
 
     try itp.vars.put("author_username", .{ .string = author.username });
     try itp.vars.put("author_dn", .{ .string = author.display_name });
+
+    for (user_args, 1..) |arg, i| {
+        const name = argumentName(i) orelse {
+            std.log.warn("tried to add more than 10 user called arguments...", .{});
+            break;
+        };
+        switch (arg) {
+            .void, .@"var", .fn_call => continue,
+            .string, .int => {
+                try itp.vars.put(name, arg);
+            },
+        }
+    }
+
+    var i: usize = user_args.len + 1;
+    while (true) : (i += 1) {
+        const name = argumentName(i) orelse break;
+        try itp.vars.put(name, .void);
+    }
 }
+
+/// One-indexed.
+fn argumentName(i: usize) ?[]const u8 {
+    return switch (i) {
+        1 => "__fir__",
+        2 => "__sec__",
+        3 => "__thi__",
+        4 => "__fou__",
+        5 => "__fif__",
+        6 => "__six__",
+        7 => "__sev__",
+        8 => "__eig__",
+        9 => "__nin__",
+        10 => "__ten__",
+        else => null,
+    };
+}
+
+const Command = struct {
+    name: []const u8,
+    script: []const u8,
+
+    /// TODO: Refactor these into a DB, where users can privately dm the bot to
+    /// append new commands/rules.
+    const all = [_]Command{
+        .{ .name = "whoami", .script = "echo(author_dn)" },
+        .{ .name = "yo", .script = "echo('Yo what is up ', __fir__, '!!!')" },
+        .{ .name = "snygg", .script = "do(let(x, or(__fir__, author_dn)), echo('Är ', x, ' snygg..? ', if(eql(x, 'Isak Fuckhead'), 'Hell no brother...', 'Omg yes girl!!!!!')))" },
+    };
+
+    fn match(name: []const u8) ?Command {
+        for (all) |c| {
+            if (std.mem.eql(u8, c.name, name)) {
+                return c;
+            }
+        }
+
+        return null;
+    }
+};
+
 
 const echo = lang.FnCall.Impl(Bot){
     .@"fn" = struct {

@@ -197,7 +197,8 @@ pub fn Builtins(comptime Context: type) type {
             .{ .name = "let", .impl = let },
             .{ .name = "define", .impl = define },
             .{ .name = "not", .impl = not },
-            .{ .name = "and", .impl = @"and" },
+            .{ .name = "bool_and", .impl = bool_and },
+            .{ .name = "bool_or", .impl = bool_or },
             .{ .name = "gt", .impl = gt },
             .{ .name = "gte", .impl = gte },
             .{ .name = "ls", .impl = ls },
@@ -205,6 +206,7 @@ pub fn Builtins(comptime Context: type) type {
             .{ .name = "repeat", .impl = repeat },
             .{ .name = "add", .impl = add },
             .{ .name = "do", .impl = do },
+            .{ .name = "or", .impl = @"or" },
         };
 
         const log = Impl{
@@ -353,7 +355,7 @@ pub fn Builtins(comptime Context: type) type {
             }.call,
         };
 
-        const @"and" = Impl{
+        const bool_and = Impl{
             .@"fn" = struct {
                 pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
                     if (args.len == 0) return error.InvalidArgumentsCount;
@@ -371,6 +373,28 @@ pub fn Builtins(comptime Context: type) type {
                     }
 
                     return .{ .string = "true" };
+                }
+            }.call,
+        };
+
+        const bool_or = Impl{
+            .@"fn" = struct {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                    if (args.len == 0) return error.InvalidArgumentsCount;
+
+                    for (args) |arg| {
+                        const val = try itp.eval(arg);
+                        const cond = try val.asString();
+                        if (std.mem.eql(u8, cond, "true")) {
+                            return .{ .string = "true" };
+                        } else if (std.mem.eql(u8, cond, "false")) {
+                            continue;
+                        } else {
+                            return error.InvalidArgumentValue;
+                        }
+                    }
+
+                    return .{ .string = "false" };
                 }
             }.call,
         };
@@ -507,6 +531,25 @@ pub fn Builtins(comptime Context: type) type {
                     }
 
                     return .void;
+                }
+            }.call,
+        };
+
+        const @"or" = Impl{
+            .@"fn" = struct {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                    if (args.len != 2) return error.InvalidArgumentsCount;
+
+                    const v1 = try itp.eval(args[0]);
+                    const v2 = try itp.eval(args[1]);
+
+                    if (v1 == .void) {
+                        return v2;
+                    } else if (v2 == .void) {
+                        return v1;
+                    }
+
+                    return v1;
                 }
             }.call,
         };
