@@ -27,12 +27,20 @@ pub const User = struct {
     display_name: []const u8,
     phone_number: []const u8,
     trust: Trust,
+
+    pub fn canInteract(self: User, min: Minimum) bool {
+        return self.trust >= min.to_interact;
+    }
+
+    pub fn canRawEval(self: User, min: Minimum) bool {
+        return self.trust >= min.to_eval_raw;
+    }
 };
 
 const Minimum = struct {
     to_interact: Trust,
     to_write_cmd: Trust,
-    to_eval_arbitrary: Trust,
+    to_eval_raw: Trust,
 };
 
 // The chat to send the results to.

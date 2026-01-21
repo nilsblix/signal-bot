@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const Client = std.http.Client;
 const Signal = @This();
 
+const Config = @import("Config.zig");
+
 target: Chat,
 listener: Listener,
 rpc_uri: std.Uri,
@@ -202,7 +204,7 @@ pub const Message = struct {
         isExpirationUpdate: bool,
         viewOnce: bool,
         reaction: ?Reaction = null,
-        groupInfo: GroupInfo,
+        groupInfo: ?GroupInfo = null,
     };
 
     const TypingMessage = struct {
@@ -226,34 +228,57 @@ pub const Message = struct {
         return std.json.parseFromSlice(Self, alloc, json, opts);
     }
 
-    pub fn textMessage(self: *const Self) ?[]const u8 {
+    const Sanitized = struct {
+        const Info = union(enum) {
+            dm,
+            group: DataMessage.GroupInfo,
+        };
+
+        const Kind = union(enum) {
+            const Reaction = struct {
+                emoji: []const u8,
+                to: Config.User,
+            };
+
+            reaction: Reaction,
+            text_message: []const u8,
+        };
+
+        source: Config.User,
+        info: Info,
+        kind: Kind,
+    };
+
+    pub fn sanitize(self: *const Message, config: Config) ?Sanitized {
+        const source_number = self.envelope.source;
+        const source = config.userFromNumber(source_number) orelse return null;
+
+        // If we don't even have a data-message, then what is this message
+        // even? Irrelevant...
         const data = self.envelope.dataMessage orelse return null;
-        return data.message;
-    }
+        const info = info: {
+            if (data.groupInfo) |g| break :info Sanitized.Info{ .group = g };
 
-    pub fn reaction(self: *const Self) ?DataMessage.Reaction {
-        const data = self.envelope.dataMessage orelse return null;
-        return data.reaction;
-    }
+            break :info .dm;
+        };
 
-    pub fn typingMessage(self: *const Self) ?TypingMessage {
-        return self.envelope.typingMessage;
-    }
+        const kind = kind: {
+            if (data.reaction) |r| {
+                break :kind Sanitized.Kind{
+                    .reaction = .{
+                        .emoji = r.emoji,
+                        .to = config.userFromNumber(r.targetAuthor) orelse return null,
+                    },
+                };
+            }
 
-    pub fn sourceName(self: *const Self) ?[]const u8 {
-        return self.envelope.sourceName;
-    }
+            break :kind Sanitized.Kind{ .text_message = data.message orelse return null };
+        };
 
-    pub fn sourceNumber(self: *const Self) ?[]const u8 {
-        return self.envelope.sourceNumber;
-    }
-
-    pub fn sourceSafeNumber(self: *const Self) []const u8 {
-        return self.sourceNumber() orelse self.envelope.source;
-    }
-
-    pub fn groupInfo(self: *const Self) ?DataMessage.GroupInfo {
-        const data = self.envelope.dataMessage orelse return null;
-        return data.groupInfo;
+        return Sanitized{
+            .source = source,
+            .info = info,
+            .kind = kind,
+        };
     }
 };
