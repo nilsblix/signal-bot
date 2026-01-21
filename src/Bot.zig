@@ -136,7 +136,7 @@ fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) 
             },
             .num => {
                 const n = std.fmt.parseInt(u64, tok.text, 10) catch |e| {
-                    const fmt = try std.fmt.allocPrint(mem.scratch, "error: could not parse int {s}: {}", .{tok.text, e});
+                    const fmt = try std.fmt.allocPrint(mem.scratch, "error: could not parse int {s}: {}", .{ tok.text, e });
                     self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
                     return;
                 };
@@ -292,7 +292,6 @@ const Command = struct {
         return null;
     }
 };
-
 
 const echo = lang.FnCall.Impl(Bot){
     .@"fn" = struct {
