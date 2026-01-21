@@ -4,7 +4,7 @@ const Signal = @import("Signal.zig");
 const Config = @import("Config.zig");
 
 pub const Error = error{
-    ContextRelated,
+    HostRelated,
     OutOfMemory,
     /// Expression could not cast to the wanted type.
     InvalidCast,
@@ -26,13 +26,13 @@ pub const Error = error{
 };
 
 pub const FnCall = struct {
-    pub fn Impl(comptime Context: type) type {
+    pub fn Impl(comptime Host: type) type {
         return struct {
             /// Used to catch some data in a closure-like fashion. Sometimes, ex:
             /// define in builtin_fns.zig, it is necessary to wrap some data to get
             /// certain vars or fns.
             payload: ?*anyopaque = null,
-            @"fn": *const fn (payload: ?*anyopaque, ctx: *Interpreter(Context), args: []const Expression) Error!Expression,
+            @"fn": *const fn (payload: ?*anyopaque, host: *Interpreter(Host), args: []const Expression) Error!Expression,
         };
     }
 
@@ -47,26 +47,26 @@ pub const Expression = union(enum) {
     void,
     int: u64,
     string: []const u8,
-    @"var": []const u8,
+    variable: []const u8,
     fn_call: FnCall,
 
     pub fn asInt(self: Expression) error{InvalidCast}!u64 {
         return switch (self) {
             .int => |d| d,
-            .void, .string, .@"var", .fn_call => error.InvalidCast,
+            .void, .string, .variable, .fn_call => error.InvalidCast,
         };
     }
 
     pub fn asString(self: Expression) error{InvalidCast}![]const u8 {
         return switch (self) {
             .string => |s| s,
-            .void, .int, .@"var", .fn_call => error.InvalidCast,
+            .void, .int, .variable, .fn_call => error.InvalidCast,
         };
     }
 
     pub fn asVar(self: Expression) error{InvalidCast}![]const u8 {
         return switch (self) {
-            .@"var" => |v| v,
+            .variable => |v| v,
             .void, .int, .string, .fn_call => error.InvalidCast,
         };
     }
@@ -74,7 +74,7 @@ pub const Expression = union(enum) {
     pub fn asFnCall(self: Expression) error{InvalidCast}!FnCall {
         return switch (self) {
             .fn_call => |f| f,
-            .void, .int, .string, .@"var" => error.InvalidCast,
+            .void, .int, .string, .variable => error.InvalidCast,
         };
     }
 
@@ -86,8 +86,8 @@ pub const Expression = union(enum) {
                 },
                 else => return false,
             },
-            .@"var" => |a_var| switch (b) {
-                .@"var" => |b_var| {
+            .variable => |a_var| switch (b) {
+                .variable => |b_var| {
                     return std.mem.eql(u8, a_var, b_var);
                 },
                 else => return false,
@@ -110,9 +110,9 @@ pub const Expression = union(enum) {
 /// expression evaluations. Therefore they have different lifetimes/purposes.
 ///
 /// * If this scripting language is evaluated as a chatbot script, and a new
-/// context is created for each expression/command, then arena and scratch are
+/// scope is created for each expression/command, then arena and scratch are
 /// both reset after each expression, thus sharing the same lifetime.
-pub fn Interpreter(comptime Context: type) type {
+pub fn Interpreter(comptime Host: type) type {
     return struct {
         const Self = @This();
 
@@ -134,21 +134,21 @@ pub fn Interpreter(comptime Context: type) type {
         vars: std.StringHashMap(Expression),
         /// Similar to `vars`, except that it replaces the function call with the
         /// expression result of the function.
-        fns: std.StringHashMap(FnCall.Impl(Context)),
+        fns: std.StringHashMap(FnCall.Impl(Host)),
 
         /// May be used in builtins.
-        ctx: *Context,
+        host: *Host,
 
-        pub fn init(arena: Allocator, scratch: Allocator, ctx: *Context) Self {
+        pub fn init(arena: Allocator, scratch: Allocator, host: *Host) Self {
             const vars = std.StringHashMap(Expression).init(arena);
-            const fns = std.StringHashMap(FnCall.Impl(Context)).init(arena);
+            const fns = std.StringHashMap(FnCall.Impl(Host)).init(arena);
 
             return .{
                 .arena = arena,
                 .scratch = scratch,
                 .vars = vars,
                 .fns = fns,
-                .ctx = ctx,
+                .host = host,
             };
         }
 
@@ -158,7 +158,7 @@ pub fn Interpreter(comptime Context: type) type {
         }
 
         pub fn addBuiltins(self: *Self) Allocator.Error!void {
-            for (Builtins(Context).all) |b| {
+            for (Builtins(Host).all) |b| {
                 try self.fns.put(b.name, b.impl);
             }
         }
@@ -166,7 +166,7 @@ pub fn Interpreter(comptime Context: type) type {
         pub fn eval(self: *Self, expr: Expression) Error!Expression {
             switch (expr) {
                 .void, .int, .string => return expr,
-                .@"var" => |v| {
+                .variable => |v| {
                     const replacement = self.vars.get(v) orelse return error.UnknownVariable;
                     return try self.eval(replacement);
                 },
@@ -179,11 +179,11 @@ pub fn Interpreter(comptime Context: type) type {
     };
 }
 
-/// No builtin uses Context. Those should be defined outside, and appended at
-/// the caller's leisure.
-pub fn Builtins(comptime Context: type) type {
+/// No builtin in this file uses Host. Those should be defined outside, and
+/// appended at the caller's leisure.
+pub fn Builtins(comptime Host: type) type {
     return struct {
-        const Impl = FnCall.Impl(Context);
+        const Impl = FnCall.Impl(Host);
 
         const Builtin = struct {
             name: []const u8,
@@ -211,7 +211,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const log = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     var buf = std.ArrayList(u8).empty;
                     defer buf.deinit(itp.scratch);
 
@@ -225,7 +225,7 @@ pub fn Builtins(comptime Context: type) type {
                             .string => |s| {
                                 try buf.appendSlice(itp.scratch, s);
                             },
-                            .void, .@"var", .fn_call => {
+                            .void, .variable, .fn_call => {
                                 return error.InvalidCast;
                             },
                         }
@@ -238,7 +238,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const @"if" = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 3) return error.InvalidArgumentsCount;
 
                     const val = try itp.eval(args[0]);
@@ -257,7 +257,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const eql = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 2) return error.InvalidArgumentsCount;
 
                     const a = try itp.eval(args[0]);
@@ -270,7 +270,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const let = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 2) return error.InvalidArgumentsCount;
 
                     const name = try args[0].asVar();
@@ -283,7 +283,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const define = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 3) return error.InvalidArgumentsCount;
 
                     const name = try args[0].asVar();
@@ -311,7 +311,7 @@ pub fn Builtins(comptime Context: type) type {
                     const impl = Impl{
                         .payload = payload,
                         .@"fn" = struct {
-                            pub fn call(untyped_payload: ?*anyopaque, called_itp: *Interpreter(Context), called_args: []const Expression) Error!Expression {
+                            pub fn call(untyped_payload: ?*anyopaque, called_itp: *Interpreter(Host), called_args: []const Expression) Error!Expression {
                                 const p: *Payload = @ptrCast(@alignCast(untyped_payload.?));
                                 if (p.inner_args.len != called_args.len) return error.InvalidArgumentsCount;
 
@@ -321,13 +321,14 @@ pub fn Builtins(comptime Context: type) type {
                                 // shadowing. Of course if the tried alias name
                                 // already exists we report that as shadowing.
                                 for (p.inner_args, 0..) |inner_arg, i| {
-                                    const @"var" = try inner_arg.asVar();
-                                    // Earlier I wanted to call this on the outer
-                                    // ctx as well, but I realized that since fns
-                                    // and vars are stored as maps, they wouldn't
-                                    // be copied deeply enough for the scope to
-                                    // stay the same as in the `define` statement.
-                                    const gop = try called_itp.vars.getOrPut(@"var");
+                                    const variable = try inner_arg.asVar();
+                                    // Earlier I wanted to call this on the
+                                    // outer host as well, but I realized that
+                                    // since fns and vars are stored as maps,
+                                    // they wouldn't be copied deeply enough
+                                    // for the scope to stay the same as in the
+                                    // `define` statement.
+                                    const gop = try called_itp.vars.getOrPut(variable);
                                     if (gop.found_existing) return error.Shadowing;
 
                                     gop.value_ptr.* = called_args[i];
@@ -336,8 +337,8 @@ pub fn Builtins(comptime Context: type) type {
                                 const ret = try called_itp.eval(p.to_eval);
 
                                 for (p.inner_args) |inner_arg| {
-                                    const @"var" = try inner_arg.asVar();
-                                    if (!called_itp.vars.remove(@"var")) {
+                                    const variable = try inner_arg.asVar();
+                                    if (!called_itp.vars.remove(variable)) {
                                         // This should never happen.
                                         unreachable;
                                     }
@@ -357,7 +358,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const bool_and = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len == 0) return error.InvalidArgumentsCount;
 
                     for (args) |arg| {
@@ -379,7 +380,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const bool_or = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len == 0) return error.InvalidArgumentsCount;
 
                     for (args) |arg| {
@@ -401,7 +402,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const not = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 1) return error.InvalidArgumentsCount;
 
                     const val = try itp.eval(args[0]);
@@ -421,16 +422,16 @@ pub fn Builtins(comptime Context: type) type {
         const twoTuple = struct {
             pub fn f1(comptime Inner: type) type {
                 return struct {
-                    pub fn f2(ctx: *Interpreter(Inner), args: []const Expression) Error!struct { u64, u64 } {
+                    pub fn f2(itp: *Interpreter(Inner), args: []const Expression) Error!struct { u64, u64 } {
                         if (args.len != 2) return error.InvalidArgumentsCount;
 
                         const a = a: {
-                            const val = try ctx.eval(args[0]);
+                            const val = try itp.eval(args[0]);
                             break :a try val.asInt();
                         };
 
                         const b = b: {
-                            const val = try ctx.eval(args[1]);
+                            const val = try itp.eval(args[1]);
                             break :b try val.asInt();
                         };
 
@@ -438,11 +439,11 @@ pub fn Builtins(comptime Context: type) type {
                     }
                 };
             }
-        }.f1(Context).f2;
+        }.f1(Host).f2;
 
         const gt = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     const v = try twoTuple(itp, args);
                     return Expression{ .string = if (v.@"0" > v.@"1") "true" else "false" };
                 }
@@ -451,7 +452,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const gte = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     const v = try twoTuple(itp, args);
                     return Expression{ .string = if (v.@"0" >= v.@"1") "true" else "false" };
                 }
@@ -460,7 +461,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const ls = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     const v = try twoTuple(itp, args);
                     return Expression{ .string = if (v.@"0" < v.@"1") "true" else "false" };
                 }
@@ -469,7 +470,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const lse = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     const v = try twoTuple(itp, args);
                     return Expression{ .string = if (v.@"0" <= v.@"1") "true" else "false" };
                 }
@@ -478,10 +479,10 @@ pub fn Builtins(comptime Context: type) type {
 
         const repeat = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 2) return error.InvalidArgumentsCount;
 
-                    // This will be cleaned up as ctx.scratch gets cleanup when having
+                    // This will be cleaned up as host.scratch gets cleanup when having
                     // evaluated this master expression.
                     var buf = std.ArrayList(u8).empty;
 
@@ -508,7 +509,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const add = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len == 0) return error.InvalidArgumentsCount;
 
                     var ret: u64 = 0;
@@ -525,7 +526,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const do = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     for (args) |arg| {
                         _ = try itp.eval(arg);
                     }
@@ -537,7 +538,7 @@ pub fn Builtins(comptime Context: type) type {
 
         const @"or" = Impl{
             .@"fn" = struct {
-                pub fn call(_: ?*anyopaque, itp: *Interpreter(Context), args: []const Expression) Error!Expression {
+                pub fn call(_: ?*anyopaque, itp: *Interpreter(Host), args: []const Expression) Error!Expression {
                     if (args.len != 2) return error.InvalidArgumentsCount;
 
                     const v1 = try itp.eval(args[0]);

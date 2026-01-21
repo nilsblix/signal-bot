@@ -356,7 +356,7 @@ pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!Expressio
                         },
                     };
                 },
-                .cparen, .comma, .end => return .{ .expr = .{ .@"var" = tok.text } },
+                .cparen, .comma, .end => return .{ .expr = .{ .variable = tok.text } },
                 .symbol, .string, .num => return .{
                     .err = .{
                         .loc = next_token.loc,

@@ -201,7 +201,7 @@ fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User, user_
 
 fn mapLangError(self: *Bot, scratch: Allocator, err: lang.Error) error{ OutOfMemory, Signal }!void {
     switch (err) {
-        error.ContextRelated => return error.Signal,
+        error.HostRelated => return error.Signal,
         error.OutOfMemory => return error.OutOfMemory,
         error.InvalidCast => {
             self.signal.sendMessage(scratch, "error: found invalid cast") catch return error.Signal;
@@ -239,7 +239,7 @@ fn addSpecificBuiltins(itp: *Interpreter, author: Config.User, user_args: []cons
             break;
         };
         switch (arg) {
-            .void, .@"var", .fn_call => continue,
+            .void, .variable, .fn_call => continue,
             .string, .int => {
                 try itp.vars.put(name, arg);
             },
@@ -309,11 +309,11 @@ const echo = lang.FnCall.Impl(Bot){
                         const n = try std.fmt.allocPrint(itp.scratch, "{d}", .{d});
                         try buf.appendSlice(itp.scratch, n);
                     },
-                    .void, .@"var", .fn_call => return error.InvalidCast,
+                    .void, .variable, .fn_call => return error.InvalidCast,
                 }
             }
 
-            itp.ctx.signal.sendMessage(itp.scratch, buf.items) catch return error.ContextRelated;
+            itp.host.signal.sendMessage(itp.scratch, buf.items) catch return error.HostRelated;
             return .void;
         }
     }.call,

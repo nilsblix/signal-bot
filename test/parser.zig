@@ -12,8 +12,8 @@ const ExprCmp = struct {
                 .string => |bs| std.mem.eql(u8, as, bs),
                 else => false,
             },
-            .@"var" => |av| switch (b) {
-                .@"var" => |bv| std.mem.eql(u8, av, bv),
+            .variable => |av| switch (b) {
+                .variable => |bv| std.mem.eql(u8, av, bv),
                 else => false,
             },
             .int => |an| switch (b) {
@@ -384,7 +384,7 @@ test "expression var" {
         \\    some_var
     ;
 
-    try expectExpression(content, .{ .expr = .{ .@"var" = "some_var" } });
+    try expectExpression(content, .{ .expr = .{ .variable = "some_var" } });
 }
 
 test "expression function" {
@@ -410,7 +410,7 @@ test "get larger next expression" {
     const expr = Expression{ .fn_call = .{
         .name = "echo",
         .args = &.{
-            .{ .@"var" = "some_var" },
+            .{ .variable = "some_var" },
             .{ .string = "Hello, world!" },
             .{ .int = 3435 },
         },
@@ -443,7 +443,7 @@ test "get mixed args expression" {
         .fn_call = .{
             .name = "mix",
             .args = &.{
-                .{ .@"var" = "var_name" },
+                .{ .variable = "var_name" },
                 .{ .int = 42 },
                 .{ .string = "hi" },
             },
@@ -466,7 +466,7 @@ test "get nested expression with whitespace" {
         .fn_call = .{
             .name = "outer",
             .args = &.{
-                .{ .@"var" = "var_one" },
+                .{ .variable = "var_one" },
                 .{ .int = 1 },
                 .{ .string = "a" },
             },
@@ -511,7 +511,7 @@ test "complex expression" {
             .name = "echo",
             .args = &.{
                 .{ .string = "Hello, " },
-                .{ .@"var" = "author" },
+                .{ .variable = "author" },
                 .{ .string = "!" },
             },
         } }, .{ .int = 20 } },
@@ -528,7 +528,7 @@ test "var at end of arguments" {
     const expr = Expression{
         .fn_call = .{
             .name = "echo",
-            .args = &.{ .{ .string = "Hello, " }, .{ .@"var" = "name" } },
+            .args = &.{ .{ .string = "Hello, " }, .{ .variable = "name" } },
         },
     };
 

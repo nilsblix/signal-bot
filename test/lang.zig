@@ -34,12 +34,12 @@ test "expression eql" {
     e1 = Expression{ .int = 35 };
     try std.testing.expect(!e1.eql(e2));
 
-    e1 = Expression{ .@"var" = "var" };
-    e2 = Expression{ .@"var" = "variable" };
+    e1 = Expression{ .variable = "var" };
+    e2 = Expression{ .variable = "variable" };
     try std.testing.expect(!e1.eql(e2));
 
-    e1 = Expression{ .@"var" = "var" };
-    e2 = Expression{ .@"var" = "var" };
+    e1 = Expression{ .variable = "var" };
+    e2 = Expression{ .variable = "var" };
     try std.testing.expect(e1.eql(e2));
 
     e1 = Expression{ .fn_call = .{
@@ -68,7 +68,7 @@ test "expression eql" {
     } };
     e2 = Expression{ .fn_call = .{
         .name = "world",
-        .args = &.{ .{ .@"var" = "name" }, .{ .int = 45 } },
+        .args = &.{ .{ .variable = "name" }, .{ .int = 45 } },
     } };
     try std.testing.expect(!e1.eql(e2));
 
