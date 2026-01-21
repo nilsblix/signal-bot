@@ -4,7 +4,7 @@ const Signal = @import("Signal.zig");
 const Config = @import("Config.zig");
 
 pub const Error = error{
-    SignalError,
+    ContextRelated,
     OutOfMemory,
     /// Expression could not cast to the wanted type.
     InvalidCast,

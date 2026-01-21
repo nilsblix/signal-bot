@@ -34,16 +34,12 @@ const Mem = struct {
     scratch_instance: std.heap.ArenaAllocator,
     scratch: Allocator,
 
-    fn init(alloc: Allocator) Mem {
-        var arena_instance = std.heap.ArenaAllocator.init(alloc);
-        var scratch_instance = std.heap.ArenaAllocator.init(alloc);
-
-        return .{
-            .arena_instance = arena_instance,
-            .arena = arena_instance.allocator(),
-            .scratch_instance = scratch_instance,
-            .scratch = scratch_instance.allocator(),
-        };
+    fn init(self: *Mem, alloc: Allocator) void {
+        self.arena_instance = std.heap.ArenaAllocator.init(alloc);
+        self.scratch_instance = std.heap.ArenaAllocator.init(alloc);
+        // Allocators must point at the arena instances stored in this Mem.
+        self.arena = self.arena_instance.allocator();
+        self.scratch = self.scratch_instance.allocator();
     }
 
     fn deinit(self: *Mem) void {
@@ -58,7 +54,8 @@ const Mem = struct {
 };
 
 pub fn run(self: *Bot, alloc: Allocator) error{ InvalidConfig, OutOfMemory, Signal }!void {
-    var mem = Mem.init(alloc);
+    var mem: Mem = undefined;
+    mem.init(alloc);
     defer mem.deinit();
 
     while (true) {
@@ -120,11 +117,11 @@ fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) 
 
     const eval_cmd = "eval";
     if (author.canRawEval(min) and std.mem.startsWith(u8, unprefixed, eval_cmd)) {
-        try self.rawEval(mem, unprefixed[eval_cmd.len..]);
+        try self.rawEval(mem, unprefixed[eval_cmd.len..], author);
     }
 }
 
-fn rawEval(self: *Bot, mem: *Mem, script: []const u8) error{ OutOfMemory, Signal }!void {
+fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User) error{ OutOfMemory, Signal }!void {
     var parser = Parser.init(null, script);
     const res = try parser.nextExpression(mem.scratch);
     switch (res) {
@@ -139,7 +136,7 @@ fn rawEval(self: *Bot, mem: *Mem, script: []const u8) error{ OutOfMemory, Signal
             var itp = Interpreter.init(mem.arena, mem.scratch, self);
 
             try itp.addBuiltins();
-            try addSpecificBuiltins(&itp);
+            try addSpecificBuiltins(&itp, author);
 
             const ret_expr = itp.eval(expr) catch |err| {
                 try mapLangError(self, mem.scratch, err);
@@ -155,34 +152,37 @@ fn rawEval(self: *Bot, mem: *Mem, script: []const u8) error{ OutOfMemory, Signal
 
 fn mapLangError(self: *Bot, scratch: Allocator, err: lang.Error) error{OutOfMemory, Signal}!void {
     switch (err) {
-        error.SignalError => return error.Signal,
+        error.ContextRelated => return error.Signal,
         error.OutOfMemory => return error.OutOfMemory,
         error.InvalidCast => {
-            self.signal.sendMessage(scratch, "found invalid cast") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: found invalid cast") catch return error.Signal;
         },
         error.UnknownVariable => {
-            self.signal.sendMessage(scratch, "found unknown variable") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: found unknown variable") catch return error.Signal;
         },
         error.UnknownFn => {
-            self.signal.sendMessage(scratch, "found unknown function") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: found unknown function") catch return error.Signal;
         },
         error.InvalidArgumentsCount => {
-            self.signal.sendMessage(scratch, "invalid number of arguments were supplied") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: invalid number of arguments were supplied") catch return error.Signal;
         },
         error.InvalidArgumentName => {
-            self.signal.sendMessage(scratch, "invalid argument name was found") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: invalid argument name was found") catch return error.Signal;
         },
         error.InvalidArgumentValue => {
-            self.signal.sendMessage(scratch, "invalid argument value") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: invalid argument value") catch return error.Signal;
         },
         error.Shadowing => {
-            self.signal.sendMessage(scratch, "found argument shadowing") catch return error.Signal;
+            self.signal.sendMessage(scratch, "error: found argument shadowing") catch return error.Signal;
         },
     }
 }
 
-fn addSpecificBuiltins(itp: *Interpreter) !void {
+fn addSpecificBuiltins(itp: *Interpreter, author: Config.User) !void {
     try itp.fns.put("echo", echo);
+
+    try itp.vars.put("author_username", .{ .string = author.username });
+    try itp.vars.put("author_dn", .{ .string = author.display_name });
 }
 
 const echo = lang.FnCall.Impl(Bot){
@@ -204,7 +204,8 @@ const echo = lang.FnCall.Impl(Bot){
                 }
             }
 
-            return lang.Expression{ .string = try buf.toOwnedSlice(itp.scratch) };
+            itp.ctx.signal.sendMessage(itp.scratch, buf.items) catch return error.ContextRelated;
+            return .void;
         }
     }.call,
 };
