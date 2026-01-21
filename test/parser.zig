@@ -159,6 +159,35 @@ test "get next token" {
         try expectNextToken(&lexer, exp);
     }
     {
+        const content = "'hello'";
+        var lexer = Parser.init(null, content);
+        const exp = Token{
+            .kind = .string,
+            .text = "hello",
+            .loc = .{
+                .filepath = null,
+                .col = 0,
+                .row = 0,
+            },
+        };
+        try expectNextToken(&lexer, exp);
+    }
+    {
+        const content = \\  "what is up?"
+        ;
+        var lexer = Parser.init(null, content);
+        const exp = Token{
+            .kind = .string,
+            .text = "what is up?",
+            .loc = .{
+                .filepath = null,
+                .col = 2,
+                .row = 0,
+            },
+        };
+        try expectNextToken(&lexer, exp);
+    }
+    {
         const content = "  (  ";
         var lexer = Parser.init(null, content);
         const exp = Token{

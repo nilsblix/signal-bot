@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Signal = @import("Signal.zig");
+const Config = @import("Config.zig");
 
 pub const Error = error{
     SignalError,
@@ -101,16 +102,16 @@ pub const Context = struct {
     /// this scripting language, they both have the same scope/lifetime, but in
     /// other cases they have different applications. I will give two examples:
     ///
-    /// If this program parses and evaluates in a repl-fashion, it makes sense
-    /// for both arena to never be cleared unless manually told so/program
-    /// ends, while scratch is only meant for temporary expression storage.
-    /// scratch will be cleared after evaluating each `top-level expression`.
+    /// * If this scripting language is evaluated in a repl-fashion, it makes
+    /// sense for arena to never be cleared unless manually told so to keep
+    /// defined variables and functions, while scratch is purely meant for
+    /// internal expression evaluations. Therefore they have different
+    /// lifetimes/purposes.
     ///
-    /// If this program is running as a chatbot (i.e very long running process)
-    /// it doesn't really make sense for the arena to fill up on loads of
-    /// memory, and might therefore want to be cleared after every command,
-    /// which might very well be on each expression, thus sharing the same
-    /// lifetime as scratch.
+    /// * If this scripting language is evaluated as a chatbot script, and a
+    /// new context is created for each expression/command, then arena and
+    /// scratch are both reset after each expression, thus sharing the same
+    /// lifetime.
     arena: Allocator,
     /// See the doc-comment for `arena` to see the difference between these
     /// allocators.
@@ -129,8 +130,9 @@ pub const Context = struct {
 
     /// May be used in builtins.
     signal: *Signal,
+    config: *const Config,
 
-    pub fn init(arena: Allocator, scratch: Allocator, signal: *Signal) Context {
+    pub fn init(arena: Allocator, scratch: Allocator, signal: *Signal, config: *const Config) Context {
         const vars = std.StringHashMap(Expression).init(arena);
         const fns = std.StringHashMap(FnCall.Impl).init(arena);
 
@@ -140,6 +142,7 @@ pub const Context = struct {
             .vars = vars,
             .fns = fns,
             .signal = signal,
+            .config = config,
         };
     }
 

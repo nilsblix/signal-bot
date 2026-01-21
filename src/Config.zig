@@ -30,13 +30,13 @@ pub const User = struct {
 };
 
 const Minimum = struct {
-    to_eval_cmd: Trust,
+    to_interact: Trust,
     to_write_cmd: Trust,
     to_eval_arbitrary: Trust,
 };
 
+// The chat to send the results to.
 target: Signal.Chat,
-source: Signal.Chat,
 cmd_prefix: []const u8,
 
 event_uri: []const u8,
@@ -64,4 +64,22 @@ pub fn userFromNumber(self: Config, account: []const u8) ?User {
     }
 
     return null;
+}
+
+pub fn userFromDisplayName(self: Config, dn: []const u8) ?User {
+    for (self.users) |user| {
+        if (std.mem.eql(u8, dn, user.display_name)) {
+            return user;
+        }
+    }
+
+    return null;
+}
+
+pub fn isTrustedMessage(self: Config, message: Signal.Message) bool {
+    const number = message.sourceSafeNumber();
+    const user = self.userFromNumber(number) orelse return false;
+    // We do not allow the bot to accept/evaluate messages from users with
+    // trust equal to zero.
+    return user.trust >= self.minimum.to_interact;
 }

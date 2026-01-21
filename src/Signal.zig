@@ -4,20 +4,17 @@ const Client = std.http.Client;
 const Signal = @This();
 
 target: Chat,
-source: Chat,
 listener: Listener,
 rpc_uri: std.Uri,
 
 pub fn init(
     alloc: Allocator,
     target: Chat,
-    source: Chat,
     event_uri: []const u8,
     rpc_uri: []const u8,
 ) (Listener.InitError || std.Uri.ParseError)!Signal {
     return Signal{
         .target = target,
-        .source = source,
         .listener = try Listener.init(alloc, event_uri),
         .rpc_uri = try std.Uri.parse(rpc_uri),
     };
@@ -184,7 +181,7 @@ pub const Message = struct {
         typingMessage: ?TypingMessage = null,
     };
 
-    const DataMessage = struct {
+    pub const DataMessage = struct {
         const Reaction = struct {
             emoji: []const u8,
             targetAuthor: []const u8,
@@ -194,12 +191,18 @@ pub const Message = struct {
             isRemove: bool,
         };
 
+        pub const GroupInfo = struct {
+            groupId: []const u8,
+            groupName: []const u8,
+        };
+
         timestamp: Timestamp,
         message: ?[]const u8 = null,
         expiresInSeconds: u32,
         isExpirationUpdate: bool,
         viewOnce: bool,
         reaction: ?Reaction = null,
+        groupInfo: GroupInfo,
     };
 
     const TypingMessage = struct {
@@ -243,5 +246,14 @@ pub const Message = struct {
 
     pub fn sourceNumber(self: *const Self) ?[]const u8 {
         return self.envelope.sourceNumber;
+    }
+
+    pub fn sourceSafeNumber(self: *const Self) []const u8 {
+        return self.sourceNumber() orelse self.envelope.source;
+    }
+
+    pub fn groupInfo(self: *const Self) ?DataMessage.GroupInfo {
+        const data = self.envelope.dataMessage orelse return null;
+        return data.groupInfo;
     }
 };
