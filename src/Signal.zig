@@ -250,8 +250,8 @@ pub const Message = struct {
     };
 
     pub fn sanitize(self: *const Message, config: Config) ?Sanitized {
-        const source_number = self.envelope.source;
-        const source = config.userFromNumber(source_number) orelse return null;
+        const source_uuid = self.envelope.sourceUuid orelse return null;
+        const source = config.userFromUuid(source_uuid) orelse return null;
 
         // If we don't even have a data-message, then what is this message
         // even? Irrelevant...
@@ -267,7 +267,7 @@ pub const Message = struct {
                 break :kind Sanitized.Kind{
                     .reaction = .{
                         .emoji = r.emoji,
-                        .to = config.userFromNumber(r.targetAuthor) orelse return null,
+                        .to = config.userFromUuid(r.targetAuthorUuid) orelse return null,
                     },
                 };
             }

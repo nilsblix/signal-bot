@@ -18,7 +18,7 @@ config: Config,
 
 pub fn init(alloc: Allocator, config: Config) anyerror!Bot {
     const signal = try Signal.init(alloc, config.target, config.event_uri, config.rpc_uri);
-    return Bot {
+    return Bot{
         .signal = signal,
         .config = config,
     };
@@ -37,7 +37,6 @@ const Mem = struct {
     fn init(self: *Mem, alloc: Allocator) void {
         self.arena_instance = std.heap.ArenaAllocator.init(alloc);
         self.scratch_instance = std.heap.ArenaAllocator.init(alloc);
-        // Allocators must point at the arena instances stored in this Mem.
         self.arena = self.arena_instance.allocator();
         self.scratch = self.scratch_instance.allocator();
     }
@@ -96,7 +95,7 @@ pub fn run(self: *Bot, alloc: Allocator) error{ InvalidConfig, OutOfMemory, Sign
                 switch (sanitized.kind) {
                     .reaction => |r| {
                         const source_dn = sanitized.source.display_name;
-                        std.log.info("{s} reacted with {s} to {s}\n", .{source_dn, r.emoji, r.to.display_name});
+                        std.log.info("{s} reacted with {s} to {s}\n", .{ source_dn, r.emoji, r.to.display_name });
                     },
                     .text_message => |text| {
                         // Here we can actually parse and evaluate commands
@@ -144,13 +143,13 @@ fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User) error
             };
 
             if (ret_expr != .void) {
-                std.log.warn("rawEval: `{s}` was evaluated to a non-void return type: {any}\n", .{script, ret_expr});
+                std.log.warn("rawEval: `{s}` was evaluated to a non-void return type: {any}\n", .{ script, ret_expr });
             }
         },
     }
 }
 
-fn mapLangError(self: *Bot, scratch: Allocator, err: lang.Error) error{OutOfMemory, Signal}!void {
+fn mapLangError(self: *Bot, scratch: Allocator, err: lang.Error) error{ OutOfMemory, Signal }!void {
     switch (err) {
         error.ContextRelated => return error.Signal,
         error.OutOfMemory => return error.OutOfMemory,

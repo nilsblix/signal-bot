@@ -23,6 +23,7 @@ const Signal = @import("Signal.zig");
 const Trust = u8;
 
 pub const User = struct {
+    uuid: []const u8,
     username: []const u8,
     display_name: []const u8,
     phone_number: []const u8,
@@ -64,9 +65,9 @@ pub fn parse(alloc: Allocator, body: []const u8) !json.Parsed(Config) {
     return try json.parseFromSlice(Config, alloc, body, opt);
 }
 
-pub fn userFromNumber(self: Config, account: []const u8) ?User {
+pub fn userFromUuid(self: Config, uuid: []const u8) ?User {
     for (self.users) |user| {
-        if (std.mem.eql(u8, account, user.phone_number)) {
+        if (std.mem.eql(u8, uuid, user.uuid)) {
             return user;
         }
     }
@@ -85,8 +86,8 @@ pub fn userFromDisplayName(self: Config, dn: []const u8) ?User {
 }
 
 pub fn isTrustedMessage(self: Config, message: Signal.Message) bool {
-    const number = message.sourceSafeNumber();
-    const user = self.userFromNumber(number) orelse return false;
+    const uuid = message.envelope.sourceUuid orelse false;
+    const user = self.userFromUuid(uuid) orelse return false;
     // We do not allow the bot to accept/evaluate messages from users with
     // trust equal to zero.
     return user.trust >= self.minimum.to_interact;

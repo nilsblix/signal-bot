@@ -173,7 +173,8 @@ test "get next token" {
         try expectNextToken(&lexer, exp);
     }
     {
-        const content = \\  "what is up?"
+        const content =
+            \\  "what is up?"
         ;
         var lexer = Parser.init(null, content);
         const exp = Token{
