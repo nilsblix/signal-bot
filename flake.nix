@@ -20,7 +20,14 @@
                         sqlite
                     ];
                     shellHook = ''
-                        export NIX_CFLAGS_COMPILE=""
+                        if [ -n "$NIX_CFLAGS_COMPILE" ]; then
+                            export NIX_CFLAGS_COMPILE="$(
+                                printf '%s\n' "$NIX_CFLAGS_COMPILE" \
+                                | tr ' ' '\n' \
+                                | grep -v '^-fmacro-prefix-map=' \
+                                | paste -sd' ' -
+                            )"
+                        fi
                     '';
                 };
             });
