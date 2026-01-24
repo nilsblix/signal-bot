@@ -34,14 +34,18 @@ pub const User = struct {
     }
 
     pub fn canRawEval(self: User, min: Minimum) bool {
-        return self.trust >= min.to_eval_raw;
+        return self.trust >= min.admin;
+    }
+
+    pub fn canProfile(self: User, min: Minimum) bool {
+        return self.trust >= min.admin;
     }
 };
 
 const Minimum = struct {
     to_interact: Trust,
     to_write_cmd: Trust,
-    to_eval_raw: Trust,
+    admin: Trust,
 };
 
 // The chat to send the results to.

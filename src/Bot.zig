@@ -119,6 +119,27 @@ fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) 
         try self.rawEval(mem, unprefixed[eval_cmd.len..], author, &.{});
     }
 
+    const profile_cmd = "profile";
+    if (author.canProfile(min) and std.mem.startsWith(u8, unprefixed, profile_cmd)) {
+        const to_run = unprefixed[profile_cmd.len..];
+        var parser = Parser.init(null, to_run);
+        const pos = parser.nextOccurence(self.config.cmd_prefix) orelse {
+            const fmt = try std.fmt.allocPrint(mem.scratch, "error: found no command to profile, found: `{s}`", .{to_run});
+            self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
+            return;
+        };
+
+        const cmd = to_run[pos + self.config.cmd_prefix.len ..];
+        const start = std.time.milliTimestamp();
+        try self.interact(mem, author, cmd);
+        const end = std.time.milliTimestamp();
+
+        const dt = end - start;
+        const fmt = try std.fmt.allocPrint(mem.scratch, "info: command `{s}` took {d} ms", .{ cmd, dt });
+        self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
+        return;
+    }
+
     var parser = Parser.init(null, unprefixed);
     var tok = parser.nextToken();
     if (tok.kind != .symbol) return;
@@ -278,6 +299,7 @@ const Command = struct {
     /// append new commands/rules.
     const all = [_]Command{
         .{ .name = "whoami", .script = "echo(author_dn)" },
+        .{ .name = "ping", .script = "echo('pong')" },
         .{ .name = "yo", .script = "echo('Yo what is up ', __fir__, '!!!')" },
         .{ .name = "snygg", .script = "do(let(x, or(__fir__, author_dn)), echo('Är ', x, ' snygg..? ', if(eql(x, 'Isak Fuckhead'), 'Hell no brother...', 'Omg yes girl!!!!!')))" },
     };

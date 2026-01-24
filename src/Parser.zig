@@ -81,23 +81,6 @@ pub fn init(filepath: ?[]const u8, content: []const u8) Parser {
     };
 }
 
-pub fn formatLastError(self: *Parser, alloc: Allocator) Allocator.Error!?[]u8 {
-    const err = self.last_error orelse return null;
-    if (err.loc.filepath) |f| {
-        return try std.fmt.allocPrint(alloc, "{s}:{d}:{d}: error: {s}", .{
-            f,
-            err.loc.row + 1,
-            err.loc.col + 1,
-            err.msg,
-        });
-    }
-    return try std.fmt.allocPrint(alloc, "{d}:{d}: error: {s}", .{
-        err.loc.row + 1,
-        err.loc.col + 1,
-        err.msg,
-    });
-}
-
 // Zero-indexed location.
 pub fn loc(self: Parser) Token.Location {
     return .{
@@ -142,6 +125,21 @@ fn end(self: Parser) Token {
         .text = "",
         .loc = self.loc(),
     };
+}
+
+pub fn nextOccurence(self: *Parser, slice: []const u8) ?usize {
+    while (true) {
+        if (slice.len > self.content.len - self.cur) {
+            return null;
+        }
+
+        const seq = self.content[self.cur .. self.cur + slice.len];
+        if (std.mem.eql(u8, seq, slice)) {
+            return self.cur;
+        }
+
+        self.advance() catch return null;
+    }
 }
 
 pub fn nextToken(self: *Parser) Token {
@@ -244,13 +242,13 @@ fn peekNextToken(self: *Parser) Token {
     return self.nextToken();
 }
 
-pub const ExpressionResult = union(enum) {
+pub const Result = union(enum) {
     end,
     expr: Expression,
     err: ParseError,
 };
 
-pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!ExpressionResult {
+pub fn nextExpression(self: *Parser, arena: Allocator) Allocator.Error!Result {
     _ = self.skipIllegals();
     const start_loc = self.loc();
     const tok = self.nextToken();

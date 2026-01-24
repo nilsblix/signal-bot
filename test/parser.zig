@@ -307,7 +307,7 @@ test "multiple next tokens" {
     try std.testing.expectEqual(tok.kind, Token.Kind.end);
 }
 
-fn expectExpression(content: []const u8, exp: Parser.ExpressionResult) anyerror!void {
+fn expectExpression(content: []const u8, exp: Parser.Result) anyerror!void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     defer {
         const deinit_status = gpa.deinit();
