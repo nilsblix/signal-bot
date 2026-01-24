@@ -17,7 +17,9 @@
                         zig_0_15
                         zls
                         signal-cli
+                        sqlite
                     ];
+                    NIX_CFLAGS_COMPILE = "";
                 };
             });
 }

@@ -4,6 +4,7 @@ const Client = std.http.Client;
 const Signal = @This();
 
 const Config = @import("Config.zig");
+const db_mod = @import("db.zig");
 
 target: Chat,
 listener: Listener,
@@ -237,21 +238,21 @@ pub const Message = struct {
         const Kind = union(enum) {
             const Reaction = struct {
                 emoji: []const u8,
-                to: Config.User,
+                to: db_mod.User,
             };
 
             reaction: Reaction,
             text_message: []const u8,
         };
 
-        source: Config.User,
+        source: db_mod.User,
         info: Info,
         kind: Kind,
     };
 
-    pub fn sanitize(self: *const Message, config: Config) ?Sanitized {
+    pub fn sanitize(self: *const Message, scratch: Allocator, db: *db_mod.sqlite3) db_mod.Error!?Sanitized {
         const source_uuid = self.envelope.sourceUuid orelse return null;
-        const source = config.userFromUuid(source_uuid) orelse return null;
+        const source = try db_mod.userFromUuid(scratch, db, source_uuid) orelse return null;
 
         // If we don't even have a data-message, then what is this message
         // even? Irrelevant...
@@ -267,7 +268,7 @@ pub const Message = struct {
                 break :kind Sanitized.Kind{
                     .reaction = .{
                         .emoji = r.emoji,
-                        .to = config.userFromUuid(r.targetAuthorUuid) orelse return null,
+                        .to = try db_mod.userFromUuid(scratch, db, r.targetAuthorUuid) orelse return null,
                     },
                 };
             }

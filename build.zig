@@ -2,12 +2,12 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
-    const opt = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{});
 
     const app = b.createModule(.{
         .root_source_file = b.path("src/app.zig"),
         .target = target,
-        .optimize = opt,
+        .optimize = optimize,
     });
 
     const exe = b.addExecutable(.{
@@ -15,16 +15,18 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
-            .optimize = opt,
+            .optimize = optimize,
         }),
     });
+
+    exe.linkSystemLibrary("sqlite3");
     b.installArtifact(exe);
 
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("test/tests.zig"),
             .target = target,
-            .optimize = opt,
+            .optimize = optimize,
         }),
     });
     tests.root_module.addImport("app", app);

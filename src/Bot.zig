@@ -1,9 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const pg = @import("pg");
+
 const Signal = @import("Signal.zig");
 const Config = @import("Config.zig");
 const Parser = @import("Parser.zig");
+
+const db_mod = @import("db.zig");
+
+const persistent = @import("persistent.zig");
+const Command = persistent.Command;
 
 const Bot = @This();
 
@@ -15,17 +22,27 @@ const Interpreter = lang.Interpreter(Bot);
 
 signal: Signal,
 config: Config,
+db: *db_mod.sqlite3,
 
-pub fn init(alloc: Allocator, config: Config) anyerror!Bot {
-    const signal = try Signal.init(alloc, config.target, config.event_uri, config.rpc_uri);
+pub fn init(alloc: Allocator, config: Config, db_path: []const u8) anyerror!Bot {
+    var signal = try Signal.init(alloc, config.target, config.event_uri, config.rpc_uri);
+    errdefer signal.deinit();
+
+    const db = try db_mod.open(alloc, db_path);
+    errdefer db_mod.close(db);
+
+    try db_mod.initSchema(db);
+
     return Bot{
         .signal = signal,
         .config = config,
+        .db = db,
     };
 }
 
 pub fn deinit(self: *Bot) void {
     self.signal.deinit();
+    db_mod.close(self.db);
 }
 
 const Mem = struct {
@@ -52,7 +69,7 @@ const Mem = struct {
     }
 };
 
-pub fn run(self: *Bot, alloc: Allocator) error{ InvalidConfig, OutOfMemory, Signal }!void {
+pub fn run(self: *Bot, alloc: Allocator) error{ SqliteError, InvalidConfig, OutOfMemory, Signal }!void {
     var mem: Mem = undefined;
     mem.init(alloc);
     defer mem.deinit();
@@ -71,7 +88,10 @@ pub fn run(self: *Bot, alloc: Allocator) error{ InvalidConfig, OutOfMemory, Sign
         };
         defer parsed.deinit();
 
-        const sanitized = parsed.value.sanitize(self.config) orelse continue;
+        const sanitized = sanitized: {
+            const opt = parsed.value.sanitize(mem.scratch, self.db) catch return error.SqliteError;
+            break :sanitized opt orelse continue;
+        };
         switch (sanitized.info) {
             .dm => {
                 // TODO: Here we want to eventually add commands/rules into
@@ -111,7 +131,7 @@ pub fn run(self: *Bot, alloc: Allocator) error{ InvalidConfig, OutOfMemory, Sign
     }
 }
 
-fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) error{ OutOfMemory, Signal }!void {
+fn interact(self: *Bot, mem: *Mem, author: db_mod.User, unprefixed: []const u8) error{ OutOfMemory, Signal, SqliteError }!void {
     const min = self.config.minimum;
 
     const eval_cmd = "eval";
@@ -144,7 +164,14 @@ fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) 
     var tok = parser.nextToken();
     if (tok.kind != .symbol) return;
 
-    const cmd = Command.match(tok.text) orelse return;
+    const cmd = cmd: {
+        const ret = Command.match(mem.scratch, tok.text, self.db) catch return error.SqliteError;
+        break :cmd ret orelse {
+            const fmt = try std.fmt.allocPrint(mem.scratch, "error: no cmd `{s}` exists", .{tok.text});
+            self.signal.sendMessage(mem.scratch, fmt) catch return error.Signal;
+            return;
+        };
+    };
 
     var buf = std.ArrayList(lang.Expression).empty;
     while (true) {
@@ -191,7 +218,7 @@ fn interact(self: *Bot, mem: *Mem, author: Config.User, unprefixed: []const u8) 
     try self.rawEval(mem, cmd.script, author, buf.items[0..]);
 }
 
-fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: Config.User, user_args: []const lang.Expression) error{ OutOfMemory, Signal }!void {
+fn rawEval(self: *Bot, mem: *Mem, script: []const u8, author: db_mod.User, user_args: []const lang.Expression) error{ OutOfMemory, Signal }!void {
     var parser = Parser.init(null, script);
     const res = try parser.nextExpression(mem.scratch);
     switch (res) {
@@ -248,7 +275,7 @@ fn mapLangError(self: *Bot, scratch: Allocator, err: lang.Error) error{ OutOfMem
     }
 }
 
-fn addSpecificBuiltins(itp: *Interpreter, author: Config.User, user_args: []const lang.Expression) !void {
+fn addSpecificBuiltins(itp: *Interpreter, author: db_mod.User, user_args: []const lang.Expression) !void {
     try itp.fns.put("echo", echo);
 
     try itp.vars.put("author_username", .{ .string = author.username });
@@ -290,30 +317,6 @@ fn argumentName(i: usize) ?[]const u8 {
         else => null,
     };
 }
-
-const Command = struct {
-    name: []const u8,
-    script: []const u8,
-
-    /// TODO: Refactor these into a DB, where users can privately dm the bot to
-    /// append new commands/rules.
-    const all = [_]Command{
-        .{ .name = "whoami", .script = "echo(author_dn)" },
-        .{ .name = "ping", .script = "echo('pong')" },
-        .{ .name = "yo", .script = "echo('Yo what is up ', __fir__, '!!!')" },
-        .{ .name = "snygg", .script = "do(let(x, or(__fir__, author_dn)), echo('Är ', x, ' snygg..? ', if(eql(x, 'Isak Fuckhead'), 'Hell no brother...', 'Omg yes girl!!!!!')))" },
-    };
-
-    fn match(name: []const u8) ?Command {
-        for (all) |c| {
-            if (std.mem.eql(u8, c.name, name)) {
-                return c;
-            }
-        }
-
-        return null;
-    }
-};
 
 const echo = lang.FnCall.Impl(Bot){
     .@"fn" = struct {

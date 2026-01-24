@@ -1,6 +1,7 @@
 const std = @import("std");
 const Config = @import("Config.zig");
 const Bot = @import("Bot.zig");
+const db_mod = @import("db.zig");
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
@@ -16,6 +17,9 @@ pub fn main() !void {
     if (!args.skip()) return;
 
     const config_path = args.next() orelse return error.NoConfigPath;
+    const db_path = args.next() orelse return error.NoDbPath;
+
+    if (args.next() != null) return error.TooManyArguments;
 
     var f = try std.fs.cwd().openFile(config_path, .{});
     defer f.close();
@@ -27,7 +31,7 @@ pub fn main() !void {
     const config_json = try reader.interface.readAlloc(alloc, n);
     const parsed = try Config.parse(alloc, config_json);
 
-    var bot = try Bot.init(alloc, parsed.value);
+    var bot = try Bot.init(alloc, parsed.value, db_path);
     defer bot.deinit();
 
     try bot.run(alloc);
