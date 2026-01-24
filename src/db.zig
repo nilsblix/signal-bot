@@ -48,16 +48,14 @@ fn exec(db: *sqlite3, sql: [:0]const u8) Error!void {
     }
 }
 
-pub fn initSchema(db: *sqlite3) !void {
+pub fn schema(db: *sqlite3) !void {
     try exec(db,
         \\PRAGMA journal_mode=WAL;
         \\PRAGMA synchronous=NORMAL;
-        \\
         \\CREATE TABLE IF NOT EXISTS Commands (
         \\    name   TEXT PRIMARY KEY CHECK (length(name) <= 32),
         \\    script TEXT
         \\);
-        \\
         \\CREATE TABLE IF NOT EXISTS Users (
         \\    uuid         TEXT PRIMARY KEY CHECK (length(uuid) == 36),
         \\    username     TEXT,

@@ -19,7 +19,9 @@
                         signal-cli
                         sqlite
                     ];
-                    NIX_CFLAGS_COMPILE = "";
+                    shellHook = ''
+                        export NIX_CFLAGS_COMPILE=""
+                    '';
                 };
             });
 }

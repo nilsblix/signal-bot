@@ -31,7 +31,7 @@ pub fn init(alloc: Allocator, config: Config, db_path: []const u8) anyerror!Bot 
     const db = try db_mod.open(alloc, db_path);
     errdefer db_mod.close(db);
 
-    try db_mod.initSchema(db);
+    try db_mod.schema(db);
 
     return Bot{
         .signal = signal,
@@ -137,6 +137,7 @@ fn interact(self: *Bot, mem: *Mem, author: db_mod.User, unprefixed: []const u8) 
     const eval_cmd = "eval";
     if (author.canRawEval(min) and std.mem.startsWith(u8, unprefixed, eval_cmd)) {
         try self.rawEval(mem, unprefixed[eval_cmd.len..], author, &.{});
+        return;
     }
 
     const profile_cmd = "profile";
@@ -150,6 +151,7 @@ fn interact(self: *Bot, mem: *Mem, author: db_mod.User, unprefixed: []const u8) 
         };
 
         const cmd = to_run[pos + self.config.cmd_prefix.len ..];
+        std.debug.print("cmd = `{s}`\n", .{cmd});
         const start = std.time.milliTimestamp();
         try self.interact(mem, author, cmd);
         const end = std.time.milliTimestamp();
