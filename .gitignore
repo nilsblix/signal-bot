@@ -6,4 +6,4 @@ db/
 # The bot script-files are named with *.nils
 *.nils
 *.json
-!example_config.json
+!examples/config.json
