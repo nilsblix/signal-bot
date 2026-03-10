@@ -230,7 +230,7 @@ pub fn Builtins(comptime Host: type) type {
                             },
                         }
                     }
-                    std.debug.print("{s}\n", .{buf.items});
+                    std.log.info("{s}\n", .{buf.items});
                     return .void;
                 }
             }.call,

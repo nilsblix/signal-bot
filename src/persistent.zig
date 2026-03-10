@@ -14,3 +14,6 @@ pub const Command = struct {
         };
     }
 };
+
+// TODO: Add something like hook which listens for certain patterns in
+// messages, and then prtforms scripts when that happens.

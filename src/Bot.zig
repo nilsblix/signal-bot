@@ -77,9 +77,6 @@ pub fn run(self: *Bot, alloc: Allocator) error{ SqliteError, InvalidConfig, OutO
     while (true) {
         // We reset the memory after each expression evaluation to not leak
         // memory at all, and to not let state slowly fill up in RAM.
-        //
-        // TODO: Real long term memory will be lateron stored in some kind of
-        // local database.
         mem.reset();
 
         const parsed = self.signal.receive(alloc) catch |e| switch (e) {
@@ -135,8 +132,14 @@ fn interact(self: *Bot, mem: *Mem, author: db_mod.User, unprefixed: []const u8) 
     const min = self.config.minimum;
 
     const eval_cmd = "eval";
-    if (author.canRawEval(min) and std.mem.startsWith(u8, unprefixed, eval_cmd)) {
-        try self.rawEval(mem, unprefixed[eval_cmd.len..], author, &.{});
+    if (std.mem.startsWith(u8, unprefixed, eval_cmd)) {
+        if (author.canRawEval(min)) {
+            try self.rawEval(mem, unprefixed[eval_cmd.len..], author, &.{});
+            return;
+        }
+
+        self.signal.sendMessage(mem.scratch, "error: you do not have admin permissions, i.e cannot run !eval")
+            catch return error.Signal;
         return;
     }
 
@@ -151,7 +154,6 @@ fn interact(self: *Bot, mem: *Mem, author: db_mod.User, unprefixed: []const u8) 
         };
 
         const cmd = to_run[pos + self.config.cmd_prefix.len ..];
-        std.debug.print("cmd = `{s}`\n", .{cmd});
         const start = std.time.milliTimestamp();
         try self.interact(mem, author, cmd);
         const end = std.time.milliTimestamp();
