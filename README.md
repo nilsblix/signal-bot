@@ -89,7 +89,7 @@ Lets walk through an example command, for example `!still "Rust"`.
 1. A user sends the message `!still "Rust"` in the chat.
 2. The bot listens to an HTTP-port for signal messages (provided by
    signal-cli), and recieves a json-packet describing the message.
-3. The bot decodes the json-packet, maps the message to a speficie user via the
+3. The bot decodes the json-packet, maps the message to a specific user via the
    database's `Users` table.
 4. The bot checks if the current user has the correct permissions for the
    message (ex. `!eval` requires admin permissions).
