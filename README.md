@@ -3,6 +3,8 @@ Signal Bot
 
 > A general-purpose chatbot for Signal
 
+![](examples/demo.gif)
+
 This bot is **not** intended for malicious purposes. Its intention is to invoke
 some fun in a friendly groupchat.
 
@@ -64,7 +66,7 @@ $ zig build && ./zig-out/bin/signal-bot config.json bot.db
 ```
 
 `config.json` is the path for the config file. It has to contain certain fields,
-thus an example exists in `example_config.json`.
+thus an example exists in `examples/config.json`.
 
 `bot.db` is simply the path to the bot's database. Don't worry, the bot sets up the
 schema for you.
